@@ -1,0 +1,27 @@
+---
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b  # v31
+        with:
+          github_access_token: ${{ github.token }}
+      - name: Cache pre-commit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: ~/.cache/pre-commit
+          key: precommit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            precommit-
+      - name: Run lint
+        run: nix develop --command ./scripts/lint --all-files

@@ -1,0 +1,45 @@
+---
+name: Update Flake Versions
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+concurrency:
+  group: flake-versions-${{ github.head_ref }}
+  cancel-in-progress: true
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.PAT }}
+      - name: Install Nix
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b  # v31
+      - name: Update flake-versions.yaml
+        run: |
+          nix develop --command ./scripts/gen-flake-versions --comment-file /tmp/comment.md
+          if git diff --quiet flake-versions.yaml; then
+            echo "No version changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake-versions.yaml
+          git commit -m "Update flake-versions.yaml"
+          git push "https://x-access-token:${PAT}@github.com/${GITHUB_REPOSITORY}" "HEAD:${BRANCH_NAME}"
+          if [ -s /tmp/comment.md ]; then
+            gh pr comment "$PR_NUMBER" --body-file /tmp/comment.md
+          fi
+        env:
+          PAT: ${{ secrets.PAT }}
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}

@@ -1,0 +1,37 @@
+---
+name: Test Tailscale SSH
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Action mode to test
+        type: choice
+        required: true
+        default: blocking
+        options:
+          - blocking
+          - background
+jobs:
+  test:
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        include:
+          - label: linux
+            runs-on: ubuntu-latest
+          - label: macos
+            runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+      - name: Start Tailscale SSH
+        uses: ./tailscale-ssh
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_SSH_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_SSH_OAUTH_CLIENT_SECRET }}
+          mode: ${{ inputs.mode }}
+          timeout-minutes: '30'
+      - name: Keep background session alive
+        if: inputs.mode == 'background'
+        run: sleep 30m

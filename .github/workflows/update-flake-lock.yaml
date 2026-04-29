@@ -1,0 +1,58 @@
+---
+name: Update Nix Flake Lock
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 0 5 * * *
+jobs:
+  update-flake-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          token: ${{ secrets.PAT }}
+      - name: Install Nix
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b  # v31
+      - name: Check day of week
+        id: check-day
+        run: |
+          day=$(date +%u)
+          if [ "$day" = "1" ]; then
+            echo "is_monday=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_monday=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check for existing PR
+        id: check-pr
+        run: |
+          pr_number=$(gh pr list --state open --head update_flake_lock_action --json number --jq '.[0].number // empty')
+          if [ -n "$pr_number" ]; then
+            echo "existing_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "existing_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+      - name: Update flake.lock
+        if: steps.check-day.outputs.is_monday == 'true' || steps.check-pr.outputs.existing_pr == 'true'
+        uses: DeterminateSystems/update-flake-lock@834c491b2ece4de0bbd00d85214bb5e83b4da5c6  # v28
+        id: update-flake-lock
+        with:
+          token: ${{ secrets.PAT }}
+          pr-title: Update Nix flake inputs
+          pr-body: |
+            Automated changes by the update-flake-lock GitHub Action:
+            https://github.com/DeterminateSystems/update-flake-lock
+            ```
+            {{ env.GIT_COMMIT_MESSAGE }}
+            ```
+      - name: Apply labels and enable automerge
+        if: steps.update-flake-lock.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          FLAKE_PR_NUMBER: ${{ steps.update-flake-lock.outputs.pull-request-number }}
+        run: |-
+          gh pr edit "$FLAKE_PR_NUMBER" --add-label nix,automerge
+          gh pr merge --auto --rebase "$FLAKE_PR_NUMBER"

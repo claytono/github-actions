@@ -1,0 +1,51 @@
+---
+name: Build Flake Outputs
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+jobs:
+  build-flake-outputs:
+    name: Build flake outputs (${{ matrix.label }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        include:
+          - label: linux amd64
+            runs-on: ubuntu-latest
+            flake-output: .#devShells.x86_64-linux.default
+          - label: linux arm64
+            runs-on: ubuntu-24.04-arm
+            flake-output: .#devShells.aarch64-linux.default
+          - label: macos arm64
+            runs-on: macos-26
+            flake-output: .#devShells.aarch64-darwin.default
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check for flake changes
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: changes
+        with:
+          filters: |
+            flake:
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/flake-builds.yaml'
+      - name: Install Nix
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.flake == 'true'
+        uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b  # v31
+        with:
+          github_access_token: ${{ github.token }}
+      - name: Build dev shell
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.flake == 'true'
+        run: nix build --print-build-logs --log-format raw --verbose ${{ matrix.flake-output }}

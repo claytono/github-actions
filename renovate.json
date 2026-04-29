@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "timezone": "America/New_York",
+  "semanticCommits": "disabled",
+  "pre-commit": {
+    "enabled": true
+  },
+  "github-actions": {
+    "enabled": true
+  },
+  "rebaseWhen": "behind-base-branch",
+  "minimumReleaseAge": "3 days",
+  "labels": ["renovate"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^tailscale-ssh/action\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=tailscale/tailscale\\n\\s+default: (?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "tailscale/tailscale"
+    }
+  ]
+}

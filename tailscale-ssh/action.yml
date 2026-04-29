@@ -1,0 +1,123 @@
+---
+name: Tailscale SSH
+description: Enable Tailscale SSH access to a running GitHub Actions Linux or macOS runner
+inputs:
+  oauth-client-id:
+    required: true
+    description: Tailscale OAuth client ID
+  oauth-secret:
+    required: true
+    description: Tailscale OAuth client secret
+  tags:
+    required: false
+    default: tag:github-actions-ssh
+    description: Tailscale tags for the ephemeral runner
+  hostname:
+    required: false
+    default: ''
+    description: Optional Tailscale hostname
+  ssh-user:
+    required: false
+    default: ''
+    description: Optional OS user for printed Tailscale SSH commands
+  mode:
+    required: false
+    default: blocking
+    description: blocking waits for continue-file; background returns immediately
+  timeout-minutes:
+    required: false
+    default: '30'
+    description: Blocking-mode timeout, 1 to 360 minutes
+  continue-file:
+    required: false
+    default: .tailscale-ssh-continue
+    description: File path that releases blocking mode
+  tailscale-version:
+    required: false
+    # renovate: datasource=github-releases depName=tailscale/tailscale
+    default: 1.94.2
+    description: Tailscale version
+  tailscale-args:
+    required: false
+    default: ''
+    description: Extra tailscale up args appended before --ssh
+outputs:
+  hostname:
+    value: ${{ steps.prepare.outputs.hostname }}
+    description: Tailscale hostname
+  ssh-user:
+    value: ${{ steps.prepare.outputs.ssh-user }}
+    description: OS user for Tailscale SSH commands
+  ipv4:
+    value: ${{ steps.control.outputs.ipv4 }}
+    description: Tailscale IPv4 address
+  ipv6:
+    value: ${{ steps.control.outputs.ipv6 }}
+    description: Tailscale IPv6 address
+  continue-file:
+    value: ${{ steps.prepare.outputs.continue-file }}
+    description: Absolute continue-file path
+runs:
+  using: composite
+  steps:
+    - name: Prepare
+      id: prepare
+      shell: bash
+      env:
+        INPUT_HOSTNAME: ${{ inputs.hostname }}
+        INPUT_CONTINUE_FILE: ${{ inputs.continue-file }}
+        INPUT_SSH_USER: ${{ inputs.ssh-user }}
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS:-}" in
+          Linux|macOS) ;;
+          *)
+            echo "::error::tailscale-ssh supports Linux and macOS GitHub-hosted runners"
+            exit 1
+            ;;
+        esac
+        raw="${INPUT_HOSTNAME}"
+        if [[ -z "$raw" ]]; then
+          raw="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB:-job}"
+        fi
+        hostname="$(printf '%s' "$raw" \
+          | tr '[:upper:]_' '[:lower:]-' \
+          | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' \
+          | cut -c1-63)"
+        hostname="$(printf '%s' "$hostname" | sed -E 's/-+$//')"
+        if [[ -z "$hostname" || ! "$hostname" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+          echo "::error::computed hostname is not a valid DNS label: $hostname"
+          exit 1
+        fi
+        if [[ "$INPUT_CONTINUE_FILE" = /* ]]; then
+          continue_file="$INPUT_CONTINUE_FILE"
+        else
+          continue_file="$GITHUB_WORKSPACE/$INPUT_CONTINUE_FILE"
+        fi
+        ssh_user="$INPUT_SSH_USER"
+        if [[ -z "$ssh_user" ]]; then
+          ssh_user="$(id -un)"
+        fi
+        echo "hostname=$hostname" >> "$GITHUB_OUTPUT"
+        echo "continue-file=$continue_file" >> "$GITHUB_OUTPUT"
+        echo "ssh-user=$ssh_user" >> "$GITHUB_OUTPUT"
+    - name: Connect Tailscale
+      uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8  # v4.1.2
+      with:
+        oauth-client-id: ${{ inputs.oauth-client-id }}
+        oauth-secret: ${{ inputs.oauth-secret }}
+        tags: ${{ inputs.tags }}
+        hostname: ${{ steps.prepare.outputs.hostname }}
+        version: ${{ inputs.tailscale-version }}
+        use-cache: 'true'
+        args: ${{ inputs.tailscale-args }} --ssh
+    - name: Control SSH session
+      id: control
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        CONTINUE_FILE: ${{ steps.prepare.outputs.continue-file }}
+        TAILSCALE_HOSTNAME: ${{ steps.prepare.outputs.hostname }}
+        SSH_USER: ${{ steps.prepare.outputs.ssh-user }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/control.sh"

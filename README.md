@@ -26,6 +26,30 @@ The action prints the exact SSH command and continue command in the workflow
 logs. Use the printed absolute continue-file path; do not assume
 `GITHUB_WORKSPACE` is set in an interactive SSH session.
 
+For matrix jobs, pass a matrix-specific suffix so parallel jobs get distinct
+Tailscale hostnames. `GITHUB_JOB` is the workflow job id, not the rendered
+matrix job name.
+
+```yaml
+jobs:
+  debug:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ssh-hostname: linux-amd64
+          - os: macos-15
+            ssh-hostname: macos-arm64
+    steps:
+      - uses: claytono/github-actions/tailscale-ssh@main
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_SSH_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_SSH_OAUTH_CLIENT_SECRET }}
+          hostname-suffix: ${{ matrix.ssh-hostname }}
+          mode: background
+```
+
 ### Tailscale Policy
 
 The runner joins the tailnet with `tag:github-actions-ssh`. The tailnet policy

@@ -16,6 +16,10 @@ inputs:
     required: false
     default: ''
     description: Optional Tailscale hostname
+  hostname-suffix:
+    required: false
+    default: ''
+    description: Optional suffix appended to the computed hostname, useful for matrix jobs
   ssh-user:
     required: false
     default: ''
@@ -65,42 +69,10 @@ runs:
       shell: bash
       env:
         INPUT_HOSTNAME: ${{ inputs.hostname }}
+        INPUT_HOSTNAME_SUFFIX: ${{ inputs.hostname-suffix }}
         INPUT_CONTINUE_FILE: ${{ inputs.continue-file }}
         INPUT_SSH_USER: ${{ inputs.ssh-user }}
-      run: |
-        set -euo pipefail
-        case "${RUNNER_OS:-}" in
-          Linux|macOS) ;;
-          *)
-            echo "::error::tailscale-ssh supports Linux and macOS GitHub-hosted runners"
-            exit 1
-            ;;
-        esac
-        raw="${INPUT_HOSTNAME}"
-        if [[ -z "$raw" ]]; then
-          raw="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB:-job}"
-        fi
-        hostname="$(printf '%s' "$raw" \
-          | tr '[:upper:]_' '[:lower:]-' \
-          | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' \
-          | cut -c1-63)"
-        hostname="$(printf '%s' "$hostname" | sed -E 's/-+$//')"
-        if [[ -z "$hostname" || ! "$hostname" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
-          echo "::error::computed hostname is not a valid DNS label: $hostname"
-          exit 1
-        fi
-        if [[ "$INPUT_CONTINUE_FILE" = /* ]]; then
-          continue_file="$INPUT_CONTINUE_FILE"
-        else
-          continue_file="$GITHUB_WORKSPACE/$INPUT_CONTINUE_FILE"
-        fi
-        ssh_user="$INPUT_SSH_USER"
-        if [[ -z "$ssh_user" ]]; then
-          ssh_user="$(id -un)"
-        fi
-        echo "hostname=$hostname" >> "$GITHUB_OUTPUT"
-        echo "continue-file=$continue_file" >> "$GITHUB_OUTPUT"
-        echo "ssh-user=$ssh_user" >> "$GITHUB_OUTPUT"
+      run: bash "$GITHUB_ACTION_PATH/scripts/prepare.sh"
     - name: Connect Tailscale
       uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8  # v4.1.2
       with:

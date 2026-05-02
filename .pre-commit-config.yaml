@@ -61,3 +61,8 @@ repos:
         entry: tests/control-tests.sh
         language: script
         pass_filenames: false
+      - id: prepare-tests
+        name: prepare script tests
+        entry: tests/prepare-tests.sh
+        language: script
+        pass_filenames: false

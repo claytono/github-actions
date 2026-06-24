@@ -2,6 +2,11 @@
 name: Update Nix Flake Lock
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: Skip the Monday check and update immediately
+        type: boolean
+        default: false
   schedule:
     - cron: 0 5 * * *
 jobs:
@@ -36,7 +41,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT }}
       - name: Update flake.lock
-        if: steps.check-day.outputs.is_monday == 'true' || steps.check-pr.outputs.existing_pr == 'true'
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.force) ||
+          steps.check-day.outputs.is_monday == 'true' ||
+          steps.check-pr.outputs.existing_pr == 'true'
         uses: DeterminateSystems/update-flake-lock@834c491b2ece4de0bbd00d85214bb5e83b4da5c6  # v28
         id: update-flake-lock
         with:

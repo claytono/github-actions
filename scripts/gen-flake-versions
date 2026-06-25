@@ -57,7 +57,7 @@ def get_nix_versions(system: str) -> dict[str, str]:
 
 def render_yaml(versions: dict[str, str]) -> str:
     body = yaml.dump(versions, default_flow_style=False, sort_keys=True)
-    return f"---\n{COMMENTS}\n{body}"
+    return f"---\n{COMMENTS}{body}"
 
 
 def load_versions(path: Path) -> dict[str, str]:

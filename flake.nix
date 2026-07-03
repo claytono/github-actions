@@ -22,6 +22,7 @@
             renovate
             shellcheck
             shfmt
+            uv
             yamllint
             yamlfix
             zizmor

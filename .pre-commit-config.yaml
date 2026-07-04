@@ -66,3 +66,9 @@ repos:
         entry: tests/prepare-tests.sh
         language: script
         pass_filenames: false
+      - id: renovate-eval-tests
+        name: renovate-eval pytest + coverage
+        entry: bash -c 'cd renovate-eval && uv run pytest tests/ --cov --cov-report=term-missing -q'
+        language: system
+        files: ^renovate-eval/
+        pass_filenames: false

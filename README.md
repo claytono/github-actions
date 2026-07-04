@@ -2,6 +2,24 @@
 
 Personal reusable GitHub Actions.
 
+## renovate-eval
+
+`renovate-eval` evaluates Renovate pull requests with Claude or Codex and can
+post the rendered report plus labels back to the PR.
+
+```yaml
+- uses: claytono/github-actions/renovate-eval@main
+  with:
+    pr_number: ${{ github.event.pull_request.number }}
+    mode: post
+    provider: claude
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+```
+
+See [renovate-eval/README.md](renovate-eval/README.md) for inputs, auth, and
+local CLI usage.
+
 ## tailscale-ssh
 
 `tailscale-ssh` enables Tailscale SSH access to a running GitHub Actions

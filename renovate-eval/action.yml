@@ -58,7 +58,7 @@ inputs:
   agent_timeout:
     description: Agent subprocess timeout in seconds; 0 disables the timeout
     required: false
-    default: '600'
+    default: '0'
   ci_timeout:
     description: CI wait timeout in seconds
     required: false

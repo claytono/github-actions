@@ -22,8 +22,8 @@ local CLI usage.
 
 ## tailscale-ssh
 
-`tailscale-ssh` enables Tailscale SSH access to a running GitHub Actions
-runner. It is intended for manual debugging in my own repositories.
+`tailscale-ssh` enables Tailscale SSH access to a running GitHub Actions runner.
+It is intended for manual debugging in my own repositories.
 
 ```yaml
 - uses: claytono/github-actions/tailscale-ssh@main

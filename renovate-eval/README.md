@@ -44,9 +44,8 @@ Lists open Renovate PRs, evaluates selected PR, shows actions menu.
 
 ### CLI
 
-The default local installation path is
-`$HOME/.claude/skills/renovate-eval`. Set `RENOVATE_EVAL_DIR` to this checkout
-when developing the shared action directly.
+The default local installation path is `$HOME/.claude/skills/renovate-eval`. Set
+`RENOVATE_EVAL_DIR` to this checkout when developing the shared action directly.
 
 ```bash
 RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
@@ -111,10 +110,10 @@ then Claude. In Codex mode, `codex_version` defaults to `latest` and optional
 `codex_evaluator_model` / `codex_auditor_model` inputs can override the Codex
 CLI default model. `codex_reasoning_effort` defaults to empty so the composite
 action uses the Codex CLI default unless a caller overrides it. `agent_timeout`
-defaults to `600` seconds, and `0` disables the subprocess timeout. Callers that
-use higher reasoning effort or slower private runners can pass a larger timeout.
-The action passes `--yolo` by default through `yolo: true`; direct local script
-runs do not use yolo mode unless `--yolo` is passed.
+defaults to `0`, which disables the subprocess timeout. Callers that need a
+bounded run can pass a positive timeout in seconds. The action passes `--yolo`
+by default through `yolo: true`; direct local script runs do not use yolo mode
+unless `--yolo` is passed.
 
 `install_superpowers` defaults to `true`. `superpowers_version` defaults to
 `latest`, which resolves the latest `obra/superpowers` GitHub release tag. Pass

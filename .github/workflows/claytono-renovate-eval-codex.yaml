@@ -105,27 +105,11 @@ jobs:
       matrix: ${{ steps.check.outputs.matrix }}
       trigger: ${{ steps.check.outputs.trigger }}
     steps:
-      - name: Resolve reusable workflow source
-        id: workflow-source
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-        run: |
-          set -euo pipefail
-          repository="${WORKFLOW_REF%%/.github/workflows/*}"
-          ref="${WORKFLOW_REF##*@}"
-          if [[ -z "$repository" || "$repository" == "$WORKFLOW_REF" || -z "$ref" || "$ref" == "$WORKFLOW_REF" ]]; then
-            echo "Could not parse reusable workflow source from github.workflow_ref=$WORKFLOW_REF" >&2
-            exit 1
-          fi
-          {
-            echo "repository=$repository"
-            echo "ref=$ref"
-          } >> "$GITHUB_OUTPUT"
       - name: Checkout workflow helpers
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
         with:
-          repository: ${{ steps.workflow-source.outputs.repository }}
-          ref: ${{ steps.workflow-source.outputs.ref }}
+          repository: claytono/github-actions
+          ref: main
           path: .github-actions
           persist-credentials: false
       - name: Checkout PR source for fingerprint

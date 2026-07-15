@@ -55,7 +55,7 @@ on:
         description: Codex reasoning effort
         required: false
         type: string
-        default: xhigh
+        default: ''
       codex_agent_timeout:
         description: Codex agent subprocess timeout in seconds; 0 disables it
         required: false

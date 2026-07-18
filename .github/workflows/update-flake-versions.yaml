@@ -2,28 +2,42 @@
 name: Update Flake Versions
 on:
   pull_request:
-    paths:
-      - flake.nix
-      - flake.lock
+    types:
+      - opened
+      - synchronize
+      - reopened
 concurrency:
-  group: flake-versions-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   update-versions:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+      pull-requests: read
     steps:
+      - name: Check for flake changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: changes
+        with:
+          filters: |
+            flake:
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'flake-versions.yaml'
+              - 'scripts/gen-flake-versions'
+              - '.github/workflows/update-flake-versions.yaml'
       - name: Checkout PR branch
+        if: steps.changes.outputs.flake == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           persist-credentials: false
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.PAT }}
       - name: Install Nix
+        if: steps.changes.outputs.flake == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         uses: cachix/install-nix-action@616559265b40713947b9c190a8ff4b507b5df49b  # v31
       - name: Update flake-versions.yaml
+        if: steps.changes.outputs.flake == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           nix develop --command ./scripts/gen-flake-versions --comment-file /tmp/comment.md
           if git diff --quiet flake-versions.yaml; then

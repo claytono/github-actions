@@ -62,6 +62,70 @@ class TestCheckCiOnce:
         assert "build" in output
         assert code == 0
 
+    def test_excludes_current_run_link_without_trailing_slash(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "Renovate Evaluation",
+                    "state": "PENDING",
+                    "bucket": "pending",
+                    "workflow": "Renovate Evaluation",
+                    "link": "https://github.com/foo/bar/actions/runs/123",
+                },
+                {
+                    "name": "other run",
+                    "state": "SUCCESS",
+                    "bucket": "pass",
+                    "workflow": "CI",
+                    "link": "https://github.com/foo/bar/actions/runs/1234",
+                },
+            ]
+        )
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 8, stdout=checks, stderr=""
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert "Renovate Evaluation" not in output
+        assert "other run" in output
+        assert code == 0
+
+    def test_preserves_completed_checks_from_current_run(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "Renovate Evaluation",
+                    "state": "PENDING",
+                    "bucket": "pending",
+                    "workflow": "Renovate Evaluation",
+                    "link": "https://github.com/foo/bar/actions/runs/123/jobs/456",
+                },
+                {
+                    "name": "test",
+                    "state": "SUCCESS",
+                    "bucket": "pass",
+                    "workflow": "Renovate Evaluation",
+                    "link": "https://github.com/foo/bar/actions/runs/123/jobs/455",
+                },
+            ]
+        )
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 8, stdout=checks, stderr=""
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert "\nRenovate Evaluation\tPENDING" not in output
+        assert "\ntest\tSUCCESS" in output
+        assert code == 0
+
     def test_filtered_snapshot_preserves_failure(self, monkeypatch):
         checks = json.dumps(
             [

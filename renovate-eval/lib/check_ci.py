@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
+from urllib.parse import urlsplit
 
 from .common import log
 
@@ -39,9 +41,18 @@ def check_ci_once(
     except json.JSONDecodeError:
         return output, result.returncode
 
-    current_run_path = f"/actions/runs/{exclude_run_id}/"
+    current_run_pattern = re.compile(
+        rf"/actions/runs/{re.escape(exclude_run_id)}(?:/|$)"
+    )
     checks = [
-        check for check in checks if current_run_path not in (check.get("link") or "")
+        check
+        for check in checks
+        if not (
+            str(check.get("bucket") or "").lower() == "pending"
+            and current_run_pattern.search(
+                urlsplit(check.get("link") or "").path
+            )
+        )
     ]
     if not checks:
         return "No checks outside the current GitHub Actions run.", 0
@@ -138,8 +149,6 @@ def fetch_failed_logs(pr_number: int | str) -> str:
         link = check.get("detailsUrl", "")
 
         # Extract run ID from details URL
-        import re
-
         match = re.search(r"/runs/(\d+)", link)
         if match:
             run_id = match.group(1)

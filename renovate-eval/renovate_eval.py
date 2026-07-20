@@ -15,6 +15,11 @@ from pathlib import Path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def should_wait_for_ci(mode: str, enabled: bool) -> bool:
+    """Return whether this evaluation should block for CI completion."""
+    return mode == "post" and enabled
+
+
 def get_repo_root() -> str:
     """Return the current git repository root or raise a clear error."""
     try:
@@ -150,7 +155,7 @@ def _run_evaluate(
     from lib.check_ci import check_ci
 
     ci_status_file = os.path.join(artifact_dir, "ci-status.md")
-    if args.mode == "post":
+    if should_wait_for_ci(args.mode, args.wait_for_ci):
         try:
             exit_code = check_ci(
                 args.pr,
@@ -166,7 +171,11 @@ def _run_evaluate(
             log.warning("CI check failed — continuing without it")
     else:
         try:
-            check_ci(args.pr, output_file=ci_status_file)
+            check_ci(
+                args.pr,
+                output_file=ci_status_file,
+                exclude_run_id=os.environ.get("GITHUB_RUN_ID"),
+            )
         except Exception:
             log.warning("CI check failed — continuing without it")
 
@@ -908,6 +917,12 @@ def main() -> None:
         help="Agent subprocess timeout in seconds; 0 disables the timeout",
     )
     p_eval.add_argument("--ci-timeout", type=int, default=300)
+    p_eval.add_argument(
+        "--wait-for-ci",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Wait for CI before post-mode evaluation (default: enabled)",
+    )
     p_eval.add_argument("--instructions", default="")
     p_eval.add_argument("--keep-artifacts", action="store_true")
 

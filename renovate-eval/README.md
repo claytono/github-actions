@@ -122,7 +122,8 @@ unless `--yolo` is passed.
 Post-mode evaluations wait for CI by default. Set the composite action's
 `wait_for_ci` input to `false` only when the caller has already completed an
 external CI wait. The evaluator still captures a one-time CI snapshot and, in
-GitHub Actions, excludes checks belonging to its current run from that snapshot.
+GitHub Actions, excludes pending checks belonging to its current run from that
+snapshot while preserving completed results.
 
 `install_superpowers` defaults to `true`. `superpowers_version` defaults to
 `latest`, which resolves the latest `obra/superpowers` GitHub release tag. Pass

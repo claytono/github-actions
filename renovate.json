@@ -12,6 +12,7 @@
   "rebaseWhen": "behind-base-branch",
   "minimumReleaseAge": "3 days",
   "labels": ["renovate"],
+  "ignoreDeps": ["claytono/github-actions"],
   "customManagers": [
     {
       "customType": "regex",

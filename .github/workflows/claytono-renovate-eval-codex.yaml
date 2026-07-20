@@ -61,6 +61,11 @@ on:
         required: false
         type: string
         default: '0'
+      evaluation_timeout_minutes:
+        description: Maximum duration of the evaluation job in minutes
+        required: false
+        type: number
+        default: 90
       ci_timeout:
         description: CI wait timeout passed to renovate-eval
         required: false
@@ -203,7 +208,7 @@ jobs:
       - wait-for-checks
     if: needs.gate.outputs.should_evaluate == 'true'
     runs-on: ${{ inputs.codex_runner_label }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.evaluation_timeout_minutes }}
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -222,6 +227,13 @@ jobs:
           persist-credentials: false
           ref: ${{ matrix.head_sha }}
           fetch-depth: 0
+      - name: Checkout evaluation action
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+        with:
+          repository: claytono/github-actions
+          ref: main
+          path: .github-actions
+          persist-credentials: false
       - name: Install Nix
         if: inputs.setup_nix
         uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31
@@ -293,7 +305,7 @@ jobs:
           mkdir -p "$CODEX_HOME"
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
       - name: Evaluate
-        uses: claytono/github-actions/renovate-eval@5f7087d4abe0c56952e805648b7a73ff6f64f815
+        uses: ./.github-actions/renovate-eval
         env:
           EVAL_FINGERPRINT: ${{ matrix.fingerprint }}
           EVAL_TRIGGER: ${{ needs.gate.outputs.trigger }}
@@ -305,4 +317,5 @@ jobs:
           codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
           agent_timeout: ${{ inputs.codex_agent_timeout }}
           ci_timeout: ${{ inputs.ci_timeout }}
+          wait_for_ci: ${{ needs.gate.outputs.trigger != 'auto' }}
           github_token: ${{ github.token }}

@@ -49,3 +49,16 @@ def test_action_installs_selected_provider_cli_but_expects_runner_gh():
     assert "sudo cp" not in action
     assert "required=(git gh python3)" in action
     assert 'command -v "$tool"' in action
+
+
+def test_action_waits_for_ci_by_default_and_forwards_override():
+    action = ACTION_YAML.read_text()
+    wait_input = action.split("  wait_for_ci:", 1)[1].split("  instructions:", 1)[0]
+
+    assert "wait_for_ci:" in action
+    assert "default: 'true'" in wait_input
+    assert "description: Wait for CI before post-mode evaluation" in action
+    assert "INPUT_WAIT_FOR_CI: ${{ inputs.wait_for_ci }}" in action
+    assert 'ARGS+=(--wait-for-ci)' in action
+    assert 'ARGS+=(--no-wait-for-ci)' in action
+    assert "Unsupported wait_for_ci value" in action

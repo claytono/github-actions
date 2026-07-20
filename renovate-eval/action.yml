@@ -63,6 +63,10 @@ inputs:
     description: CI wait timeout in seconds
     required: false
     default: '300'
+  wait_for_ci:
+    description: Wait for CI before post-mode evaluation
+    required: false
+    default: 'true'
   instructions:
     description: Additional instructions for the evaluator
     required: false
@@ -253,6 +257,7 @@ runs:
         INPUT_YOLO: ${{ inputs.yolo }}
         INPUT_AGENT_TIMEOUT: ${{ inputs.agent_timeout }}
         INPUT_CI_TIMEOUT: ${{ inputs.ci_timeout }}
+        INPUT_WAIT_FOR_CI: ${{ inputs.wait_for_ci }}
         RENOVATE_EVAL_CLAUDE_PLUGIN_DIR: ${{ steps.superpowers.outputs.claude_plugin_dir }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
@@ -291,6 +296,18 @@ runs:
         if [[ -n "$INPUT_AGENT_TIMEOUT" ]]; then
           ARGS+=(--agent-timeout "$INPUT_AGENT_TIMEOUT")
         fi
+        case "$INPUT_WAIT_FOR_CI" in
+          true)
+            ARGS+=(--wait-for-ci)
+            ;;
+          false)
+            ARGS+=(--no-wait-for-ci)
+            ;;
+          *)
+            echo "Unsupported wait_for_ci value: $INPUT_WAIT_FOR_CI" >&2
+            exit 1
+            ;;
+        esac
         if [[ -n "$EVAL_INSTRUCTIONS" ]]; then
           ARGS+=(--instructions "$EVAL_INSTRUCTIONS")
         fi

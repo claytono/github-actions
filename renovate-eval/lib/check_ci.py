@@ -17,15 +17,52 @@ def _find_timeout_cmd() -> str | None:
     return None
 
 
-def check_ci_once(pr_number: int | str) -> tuple[str, int]:
+def check_ci_once(
+    pr_number: int | str, exclude_run_id: str | None = None
+) -> tuple[str, int]:
     """Run gh pr checks once and return (output, exit_code)."""
+    cmd = ["gh", "pr", "checks", str(pr_number)]
+    if exclude_run_id:
+        cmd.extend(["--json", "name,state,bucket,workflow,link"])
     result = subprocess.run(
-        ["gh", "pr", "checks", str(pr_number)],
+        cmd,
         capture_output=True,
         text=True,
         timeout=30,
     )
-    return result.stdout + result.stderr, result.returncode
+    output = result.stdout + result.stderr
+    if not exclude_run_id:
+        return output, result.returncode
+
+    try:
+        checks = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return output, result.returncode
+
+    current_run_path = f"/actions/runs/{exclude_run_id}/"
+    checks = [
+        check for check in checks if current_run_path not in (check.get("link") or "")
+    ]
+    if not checks:
+        return "No checks outside the current GitHub Actions run.", 0
+
+    lines = ["NAME\tSTATE\tWORKFLOW\tLINK"]
+    for check in checks:
+        lines.append(
+            "\t".join(
+                str(check.get(field) or "")
+                for field in ("name", "state", "workflow", "link")
+            )
+        )
+
+    buckets = {str(check.get("bucket") or "").lower() for check in checks}
+    if "fail" in buckets:
+        exit_code = 1
+    elif "pending" in buckets:
+        exit_code = 8
+    else:
+        exit_code = result.returncode if result.returncode not in (0, 8) else 0
+    return "\n".join(lines), exit_code
 
 
 def wait_for_ci(pr_number: int | str, timeout: int = 300) -> tuple[str, int]:
@@ -132,6 +169,7 @@ def check_ci(
     wait: bool = False,
     timeout: int = 300,
     output_file: str | None = None,
+    exclude_run_id: str | None = None,
 ) -> int:
     """Check CI status and optionally write to file.
 
@@ -143,7 +181,12 @@ def check_ci(
         output, exit_code = wait_for_ci(pr_number, timeout)
         lines.append(output)
     else:
-        output, exit_code = check_ci_once(pr_number)
+        if exclude_run_id:
+            output, exit_code = check_ci_once(
+                pr_number, exclude_run_id=exclude_run_id
+            )
+        else:
+            output, exit_code = check_ci_once(pr_number)
         lines.append(output)
 
     lines.append(fetch_failed_logs(pr_number))

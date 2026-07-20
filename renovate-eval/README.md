@@ -58,6 +58,10 @@ python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
   evaluate --pr 1234 --post --context local
 
+# Post after an external CI gate, taking a snapshot without waiting again
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
+  evaluate --pr 1234 --post --context ci --no-wait-for-ci
+
 # Use Codex locally
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
   evaluate --pr 1234 --dry-run --context local --provider codex
@@ -114,6 +118,11 @@ defaults to `0`, which disables the subprocess timeout. Callers that need a
 bounded run can pass a positive timeout in seconds. The action passes `--yolo`
 by default through `yolo: true`; direct local script runs do not use yolo mode
 unless `--yolo` is passed.
+
+Post-mode evaluations wait for CI by default. Set the composite action's
+`wait_for_ci` input to `false` only when the caller has already completed an
+external CI wait. The evaluator still captures a one-time CI snapshot and, in
+GitHub Actions, excludes checks belonging to its current run from that snapshot.
 
 `install_superpowers` defaults to `true`. `superpowers_version` defaults to
 `latest`, which resolves the latest `obra/superpowers` GitHub release tag. Pass

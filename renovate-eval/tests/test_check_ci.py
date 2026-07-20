@@ -31,6 +31,122 @@ class TestCheckCiOnce:
         _output, code = check_ci_once(1234)
         assert code == 1
 
+    def test_excludes_current_github_run_from_snapshot(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "Renovate Evaluation",
+                    "state": "PENDING",
+                    "bucket": "pending",
+                    "workflow": "Renovate Evaluation",
+                    "link": "https://github.com/foo/bar/actions/runs/123/jobs/456",
+                },
+                {
+                    "name": "build",
+                    "state": "SUCCESS",
+                    "bucket": "pass",
+                    "workflow": "CI",
+                    "link": "https://github.com/foo/bar/actions/runs/122/jobs/455",
+                },
+            ]
+        )
+
+        def mock_run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 8, stdout=checks, stderr="")
+
+        monkeypatch.setattr("lib.check_ci.subprocess.run", mock_run)
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert "Renovate Evaluation" not in output
+        assert "build" in output
+        assert code == 0
+
+    def test_filtered_snapshot_preserves_failure(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "test",
+                    "state": "FAILURE",
+                    "bucket": "fail",
+                    "workflow": "CI",
+                    "link": "https://github.com/foo/bar/actions/runs/122/jobs/455",
+                }
+            ]
+        )
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 1, stdout=checks, stderr=""
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert "test" in output
+        assert code == 1
+
+    def test_filtered_snapshot_preserves_other_pending_checks(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "integration",
+                    "state": "PENDING",
+                    "bucket": "pending",
+                    "workflow": "CI",
+                    "link": "https://github.com/foo/bar/actions/runs/122/jobs/455",
+                }
+            ]
+        )
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 8, stdout=checks, stderr=""
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert "integration" in output
+        assert code == 8
+
+    def test_filtered_snapshot_handles_only_current_run(self, monkeypatch):
+        checks = json.dumps(
+            [
+                {
+                    "name": "Renovate Evaluation",
+                    "state": "PENDING",
+                    "bucket": "pending",
+                    "workflow": "Renovate Evaluation",
+                    "link": "https://github.com/foo/bar/actions/runs/123/jobs/456",
+                }
+            ]
+        )
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 8, stdout=checks, stderr=""
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert output == "No checks outside the current GitHub Actions run."
+        assert code == 0
+
+    def test_filtered_snapshot_preserves_unparseable_output(self, monkeypatch):
+        monkeypatch.setattr(
+            "lib.check_ci.subprocess.run",
+            lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 1, stdout="not json", stderr="gh failed"
+            ),
+        )
+
+        output, code = check_ci_once(1234, exclude_run_id="123")
+
+        assert output == "not jsongh failed"
+        assert code == 1
+
 
 class TestWaitForCi:
     def test_success(self, monkeypatch):
@@ -170,3 +286,22 @@ class TestCheckCi:
         monkeypatch.setattr("lib.check_ci.fetch_failed_logs", lambda pr: "")
         check_ci(1234)
         assert "stdout output" in capsys.readouterr().out
+
+    def test_non_wait_snapshot_excludes_current_run(self, monkeypatch, tmp_dir):
+        calls = []
+
+        def mock_check_once(pr, exclude_run_id=None):
+            calls.append((pr, exclude_run_id))
+            return "snapshot", 0
+
+        monkeypatch.setattr("lib.check_ci.check_ci_once", mock_check_once)
+        monkeypatch.setattr("lib.check_ci.fetch_failed_logs", lambda pr: "")
+
+        check_ci(
+            1234,
+            wait=False,
+            output_file=os.path.join(tmp_dir, "ci.md"),
+            exclude_run_id="123",
+        )
+
+        assert calls == [(1234, "123")]

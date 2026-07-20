@@ -11,7 +11,7 @@ pre-commit: 4.5.1
 python3: 3.14.6-env
 renovate: 43.214.1
 shfmt: 3.13.1
-uv: 0.11.26
+uv: 0.11.28
 yamlfix: 1.19.1
 yamllint: 1.37.1
 zizmor: 1.26.1

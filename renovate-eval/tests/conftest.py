@@ -29,6 +29,7 @@ def valid_eval_data() -> dict:
         "key_fixes": "Fixed a bug in the search indexer ([#8242](https://github.com/Sonarr/Sonarr/issues/8242)).",
         "newer_versions": None,
         "hazards": "None identified. Patch release with no breaking changes.",
+        "follow_up": None,
         "sources": [
             {
                 "label": "Sonarr v4.0.17 release",
@@ -65,6 +66,7 @@ def multi_package_eval_data() -> dict:
         "key_fixes": None,
         "newer_versions": None,
         "hazards": "PostgreSQL minor version bump may require `pg_upgrade` validation.",
+        "follow_up": None,
         "sources": [
             {
                 "label": "PostgreSQL 16.3 release notes",

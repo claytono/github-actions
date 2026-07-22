@@ -32,10 +32,15 @@ item to its PR or issue.
 
 ### Features & UX
 
-For EACH new feature, state: (1) what it does, (2) whether the user's config
-uses it, (3) how to enable it with specific config keys/commands. "Feature X
-added" without enablement guidance is insufficient. Link each item to its PR or
-issue.
+For every feature required by proportional discovery depth, explain in natural
+prose what it does, why it matters, its availability, whether activation is
+automatic or requires action, what deployment evidence establishes about use,
+and what remains unknown. Use a descriptive heading naming the feature or its
+value. Do not stack applicability, activation, and usage classifications into a
+pseudo-status heading. A major release includes every upstream headline feature
+plus other materially significant features. Unknown configuration is not
+grounds for omission. Include relevant enablement guidance and link each item to
+its PR or issue.
 
 ### Security
 
@@ -67,10 +72,21 @@ evaluate their changelogs for:
 
 ## Hazards & Risks
 
-REQUIRED even if no risks exist. List every breaking change, deprecation, and
-migration with deployment-specific impact assessment. If there are genuinely no
-hazards, write "None identified" with a brief explanation of why (e.g., "no
-breaking changes in this release").
+REQUIRED even if no risks exist. For a major release, list every documented
+breaking change, deprecation, and migration with a deployment-specific impact
+assessment. Related changes may be synthesized by category, followed by a
+complete compact inventory. Use a descriptive heading and natural prose to make
+the consequence, deployment evidence, and any uncertainty clear. Do not stack
+applicability, activation, and usage classifications into the heading. If there
+are genuinely no hazards, write "None identified" with a brief explanation of
+why (e.g., "no breaking changes in this release").
+
+## Further Follow-up
+
+Include only consequential unknowns that could not be resolved with available
+access. State the evidence already checked, the exact quantification step, and
+how each possible result changes the verdict. Omit this section when there are
+no unresolved consequential questions; do not use it as a generic test plan.
 
 ## Sources
 

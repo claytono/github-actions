@@ -75,6 +75,14 @@ def render_report(
     lines.append(eval_data["hazards"])
     lines.append("")
 
+    # Further Follow-up (optional unresolved consequential questions)
+    follow_up = eval_data.get("follow_up")
+    if follow_up and isinstance(follow_up, str) and follow_up.strip():
+        lines.append("## Further Follow-up")
+        lines.append("")
+        lines.append(follow_up)
+        lines.append("")
+
     # Sources
     lines.append("## Sources")
     lines.append("")

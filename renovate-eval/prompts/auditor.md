@@ -34,17 +34,33 @@ Check each of these against the embedded rubric:
 - **Forward-looking analysis:** If the report has a Newer Versions section, is
   the analysis substantive? If the section is absent, does the evidence file
   document why it was omitted?
-- **Feature enablement:** Do new features meet the Report Format's Features & UX
-  requirements?
+- **Discovery completeness:** Does coverage match the update depth? For a major
+  release, does the report retain every documented breaking-change category and
+  every upstream headline feature plus other materially significant features?
+  Related low-level breaks may be grouped only when a complete compact inventory
+  is retained.
+- **Feature analysis:** Do qualifying features explain their value,
+  availability, activation requirements, deployment state, and relevant
+  enablement without treating unknown as disabled or unconfigured?
 - **Config cross-reference:** Does the analysis follow the evaluator's rule 4
   cross-referencing requirements?
 - **No deferrals:** Does the report follow the evaluator's rule 4 requirement to
   investigate rather than defer to the reader?
-- **Signal-to-noise:** Does the rendered report omit upstream changes that the
-  evidence says are disabled, unconfigured, pre-existing, hypothetical, or not
-  deployment-relevant? Treat evidence-only dismissals in the rendered report as
-  FEEDBACK unless they are needed to explain an actual hazard, merge blocker, or
-  operator action.
+- **Applicability accuracy:** Does the report make clear in natural prose what
+  deployment evidence establishes and what remains unknown? Missing access must
+  not be presented as proof that a feature, client, or integration is absent.
+  Do not require the literal words `applies`, `does not apply`, or `unknown` when
+  the meaning is already explicit.
+- **Readable headings:** Flag stacked pseudo-status headings that compress
+  applicability, availability, activation, and usage into labels such as
+  `Applies, automatic capability; use unknown`. Prefer a descriptive feature,
+  change, or consequence heading with those dimensions explained in the prose.
+- **Follow-up quality:** Are unresolved consequential compatibility questions
+  placed in Further Follow-up with prior evidence, an exact quantification step,
+  and explicit verdict outcomes? Are optional-feature unknowns excluded from
+  risk calibration? For consequential schema or data migrations, does the
+  report verify the recoverable backup and restore path or retain that
+  **recovery prerequisite** as an exact follow-up?
 
 Your job is to check whether the evaluator followed the rubric, not to
 substitute your own judgment for what the rubric says. If the rubric says X and
@@ -70,21 +86,17 @@ These checks verify the report is internally sound:
   - "High confidence" but Sources section is thin relative to the scope of
     claims made
   - Verdict contradicts the report's own risk discussion
-- **No release-note dumping:** Flag repeated upstream issues across multiple
-  sections, "does not affect this deployment" bullets in the rendered report,
-  and verdicts raised by evidence-only dismissals rather than actual deployed
-  behavior changes.
+- **No release-note dumping:** Flag shallow copying or paraphrasing that lacks
+  synthesis, practical impact, applicability, defaults, prerequisites, or
+  enablement. Do not flag analyzed major-release information merely because it
+  is currently unused or its deployment state is unknown.
 
   Common failure patterns that MUST be FEEDBACK:
 
-  - Bullets whose main point is an evidence-only dismissal, for example phrases
-    like "disabled by default", "not configured", "absent from the env block",
-    "not scraped today", "not automatically consumed", or "does not change
-    runtime behavior here". These phrases are examples, not an exhaustive or
-    hard-coded list.
-  - A section that explains how to enable a feature the PR did not enable and
-    the deployment does not currently use, unless the feature is a realistic
-    follow-up action explicitly tied to the verdict.
+  - Major-release features or breaking changes omitted solely because they are
+    unconfigured, not observed in repository files, or unknown in CI mode.
+  - A claim that something is disabled or unused when the evidence establishes
+    only that repository configuration did not mention it.
   - The same upstream issue or endpoint-format change repeated in more than one
     rendered section.
   - A Caution or Risk verdict justified by dismissed or unconfigured upstream

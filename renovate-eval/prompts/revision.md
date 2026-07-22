@@ -14,6 +14,16 @@ NOT a new evaluation — do not start from scratch.
 6. Do NOT rewrite fields the auditor didn't flag
 7. After all fixes, re-evaluate whether your verdict and label still match the
    updated content
+8. Do not reduce required discovery coverage to make the report shorter. Major
+   release headline features, breaking-change categories, and complete compact
+   inventories must survive revision. If feedback conflicts with this rule,
+   improve the synthesis or evidence instead of deleting the item.
+9. When feedback identifies repetition, keep the complete analysis in the
+   single most appropriate section and remove the repeated details from every
+   other section. A brief cross-reference may remain when needed, but it must
+   not repeat the factual inventory or impact assessment. Removing duplicated
+   detail does not reduce discovery coverage; the item remains fully analyzed
+   once in the rendered report.
 
 ## Field Mapping
 
@@ -31,6 +41,7 @@ to eval-data.json fields:
 | Key Fixes               | `key_fixes`             |
 | Newer Versions          | `newer_versions`        |
 | Hazards & Risks         | `hazards`               |
+| Further Follow-up       | `follow_up`             |
 | Sources                 | `sources` array         |
 | Verdict                 | `verdict` + `label`     |
 

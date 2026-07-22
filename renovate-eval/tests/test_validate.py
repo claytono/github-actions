@@ -64,13 +64,14 @@ class TestValidateEvalData:
             "security",
             "key_fixes",
             "newer_versions",
+            "follow_up",
         ):
             valid_eval_data[field] = None
         assert validate_eval_data(valid_eval_data) == []
 
     def test_optional_fields_string(self, valid_eval_data):
         """String optional fields should be valid."""
-        valid_eval_data["performance_stability"] = "Some text"
+        valid_eval_data["follow_up"] = "Quantify the unresolved compatibility risk."
         assert validate_eval_data(valid_eval_data) == []
 
     def test_optional_fields_reject_empty_strings(self, valid_eval_data):
@@ -80,6 +81,7 @@ class TestValidateEvalData:
             "security",
             "key_fixes",
             "newer_versions",
+            "follow_up",
         ):
             data = copy.deepcopy(valid_eval_data)
             data[field] = ""
@@ -93,6 +95,7 @@ class TestValidateEvalData:
             "security",
             "key_fixes",
             "newer_versions",
+            "follow_up",
         ):
             data = copy.deepcopy(valid_eval_data)
             data[field] = "   "
@@ -100,9 +103,16 @@ class TestValidateEvalData:
             assert any(field in e for e in errors)
 
     def test_optional_fields_wrong_type(self, valid_eval_data):
-        valid_eval_data["performance_stability"] = 123
+        valid_eval_data["follow_up"] = 123
         errors = validate_eval_data(valid_eval_data)
-        assert any("performance_stability" in e for e in errors)
+        assert any("follow_up" in e for e in errors)
+
+    def test_follow_up_bare_reference_detected(self, valid_eval_data):
+        valid_eval_data["follow_up"] = "Inspect upstream issue #1234."
+
+        errors = validate_eval_data(valid_eval_data)
+
+        assert any("'follow_up' contains bare #NNN" in e for e in errors)
 
     def test_missing_sources(self, valid_eval_data):
         del valid_eval_data["sources"]

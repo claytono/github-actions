@@ -52,6 +52,7 @@ def validate_eval_data(data: object) -> list[str]:
         "security",
         "key_fixes",
         "newer_versions",
+        "follow_up",
     ):
         val = data.get(field)
         if val is not None and not isinstance(val, str):
@@ -85,6 +86,7 @@ def validate_eval_data(data: object) -> list[str]:
         "key_fixes",
         "newer_versions",
         "hazards",
+        "follow_up",
         "verdict",
     ]
     for field in content_fields:

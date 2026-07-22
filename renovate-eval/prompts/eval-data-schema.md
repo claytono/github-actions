@@ -24,6 +24,7 @@ markdown reports. A template renders the report from your JSON.
   "key_fixes": "Markdown text or null",
   "newer_versions": "Markdown text or null",
   "hazards": "Markdown text (REQUIRED, even if 'None identified...')",
+  "follow_up": "Markdown text or null",
   "sources": [
     {
       "label": "Sonarr v4.0.17 release",
@@ -71,16 +72,22 @@ components. This renders as the first section under "The Deep Dive."
 
 ### performance_stability (string or null)
 
-Performance improvements, stability fixes, resource usage changes. Link each
-item to its PR or issue. Include only deployment-relevant effects; put
-non-applicable dismissals in the evidence file. Set to `null` if not applicable.
+Performance improvements, stability fixes, and resource usage changes required
+by the proportional discovery depth. Link each item to its PR or issue and state
+its practical deployment effect in natural prose under a descriptive heading.
+Distinguish what deployment evidence establishes from what remains unknown. Set
+to `null` only when the selected depth produced no material items.
 
 ### features_ux (string or null)
 
-For EACH deployment-relevant new feature: (1) what it does, (2) whether the
-user's config uses it, (3) how to enable it with specific config keys/commands.
-Do not include disabled or unconfigured features unless they are a realistic
-operator action for this deployment. Set to `null` if not applicable.
+For each feature required by proportional discovery depth: (1) what it does and
+why it matters, (2) its availability, (3) whether activation is automatic or
+requires action, (4) what deployment evidence establishes about use, and (5)
+what remains unknown and why. Use a descriptive heading and natural prose; do
+not encode these dimensions as a stacked status prefix. A major release MUST
+include every upstream headline feature plus other materially significant
+features. Unknown configuration is not grounds for omission. Set to `null` only
+when the selected depth produced no qualifying features.
 
 ### security (string or null)
 
@@ -103,9 +110,24 @@ file why it was omitted).
 
 ### hazards (required, string)
 
-ALWAYS required. List only breaking changes, deprecations, and migrations that
-affect configured or observed deployment paths. If there are genuinely no
-hazards, write "None identified" with a brief explanation.
+ALWAYS required. For a major release, cover every documented breaking change,
+deprecation, and migration. Related low-level changes may be synthesized by
+category, followed by a complete compact inventory. For every item or group,
+use a descriptive heading and natural prose to explain the consequence, what
+deployment evidence establishes, and any remaining uncertainty. For minor and
+patch releases, follow the proportional discovery rules. If there are genuinely
+no hazards, write "None identified" with a brief explanation.
+
+### follow_up (string or null)
+
+This renders as the **Further Follow-up** section. Include consequential
+unknowns that could not be quantified with the evaluator's
+available access. For each item state: (1) what remains unknown, (2) why it
+matters, (3) what evidence was already checked, (4) the exact follow-up needed,
+and (5) how each possible result changes the verdict. This is not a generic test
+checklist. For a consequential schema or data migration, an unverified
+recoverable backup and restore path is an unresolved **recovery prerequisite**
+and belongs here. Set to `null` when no consequential unknown remains.
 
 ### sources (required, non-empty array)
 

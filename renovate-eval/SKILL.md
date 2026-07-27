@@ -13,6 +13,17 @@ description:
 **DO NOT** explain what this skill does. **DO NOT** ask what the user wants.
 **START WORKING.**
 
+## Evaluation Provider
+
+For every `evaluate` command, replace `CURRENT_CHAT_PROVIDER` with the provider
+matching the chat tool running this skill:
+
+- Claude Code: `claude`
+- Codex: `codex`
+
+Always pass the provider explicitly. Do not rely on the CLI or environment
+default.
+
 ## PR Selection
 
 **Always run init first.** This detects environment capabilities and lists PRs:
@@ -82,7 +93,8 @@ Run the evaluation engine in dry-run mode:
 ```bash
 RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
-    evaluate --pr "$PR" --dry-run --context local
+    evaluate --pr "$PR" --dry-run --context local \
+    --provider CURRENT_CHAT_PROVIDER
 ```
 
 The script prints the report to stdout. Display the report **VERBATIM** — do NOT
@@ -155,7 +167,8 @@ Print all actions as a numbered list. Wait for user selection.
   ```bash
   RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
   python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
-    evaluate --pr "$PR" --post --context local
+    evaluate --pr "$PR" --post --context local \
+    --provider CURRENT_CHAT_PROVIDER
   ```
 
 - **View in Plannotator**: Open the evaluation report in plannotator's

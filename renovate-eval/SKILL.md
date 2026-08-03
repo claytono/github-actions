@@ -33,6 +33,23 @@ RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init
 ```
 
+If the user scopes the PR list, translate their request into `gh pr list`
+selection arguments and pass them as one quoted value to `--gh-pr-list-args`.
+User-provided author, app, state, and limit values replace the script defaults;
+other selection filters are forwarded unchanged. Do not pass repository or
+output-format arguments such as `--repo`, `--json`, `--jq`, `--template`, or
+`--web`; the script rejects them because evaluation stays in the current
+repository and requires its own JSON output. Run `gh pr list --help` when the
+needed filter syntax is unclear.
+
+For example, `renovate-eval 5 prs labeled with safe` means:
+
+```bash
+RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init \
+    --gh-pr-list-args='--label renovate:safe --limit 5'
+```
+
 The script outputs a JSON object:
 
 ```json

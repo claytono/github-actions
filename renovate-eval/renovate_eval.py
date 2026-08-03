@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -555,9 +556,41 @@ def cmd_validate(args: argparse.Namespace) -> None:
         print("VALID: All checks passed")
 
 
+def _has_gh_pr_list_option(
+    arguments: list[str], long_name: str, short_name: str | None = None
+) -> bool:
+    """Return whether arguments contain a long or short option spelling."""
+    for argument in arguments:
+        if argument == long_name or argument.startswith(f"{long_name}="):
+            return True
+        if short_name and (
+            argument == short_name
+            or (argument.startswith(short_name) and not argument.startswith("--"))
+        ):
+            return True
+    return False
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize session: detect environment, list Renovate PRs."""
     from lib.common import require_gh_auth, require_tools
+
+    try:
+        gh_pr_list_args = shlex.split(args.gh_pr_list_args)
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: Invalid --gh-pr-list-args: {exc}") from exc
+
+    unsupported_options = [
+        ("--json", None),
+        ("--jq", "-q"),
+        ("--template", "-t"),
+        ("--web", "-w"),
+        ("--repo", "-R"),
+        ("--help", "-h"),
+    ]
+    for long_name, short_name in unsupported_options:
+        if _has_gh_pr_list_option(gh_pr_list_args, long_name, short_name):
+            raise SystemExit(f"ERROR: Unsupported gh pr list argument: {long_name}")
 
     require_tools("gh")
     require_gh_auth()
@@ -577,21 +610,31 @@ def cmd_init(args: argparse.Namespace) -> None:
     )
     automerge_available = automerge_result.stdout.strip() == "true"
 
-    # Fetch Renovate PRs
-    pr_result = subprocess.run(
+    pr_list_command = [
+        "gh",
+        "pr",
+        "list",
+    ]
+    if not (
+        _has_gh_pr_list_option(gh_pr_list_args, "--author", "-A")
+        or _has_gh_pr_list_option(gh_pr_list_args, "--app")
+    ):
+        pr_list_command.extend(["--author", "app/renovate"])
+    if not _has_gh_pr_list_option(gh_pr_list_args, "--state", "-s"):
+        pr_list_command.extend(["--state", "open"])
+    pr_list_command.extend(
         [
-            "gh",
-            "pr",
-            "list",
-            "--author",
-            "app/renovate",
-            "--state",
-            "open",
             "--json",
             "number,title,createdAt,autoMergeRequest,statusCheckRollup,labels",
-            "--limit",
-            "100",
-        ],
+        ]
+    )
+    if not _has_gh_pr_list_option(gh_pr_list_args, "--limit", "-L"):
+        pr_list_command.extend(["--limit", "100"])
+    pr_list_command.extend(gh_pr_list_args)
+
+    # Fetch Renovate PRs
+    pr_result = subprocess.run(
+        pr_list_command,
         capture_output=True,
         text=True,
         timeout=30,
@@ -940,7 +983,12 @@ def main() -> None:
     p_validate.add_argument("file", help="Path to eval-data.json")
 
     # init
-    sub.add_parser("init", help="Initialize session")
+    p_init = sub.add_parser("init", help="Initialize session")
+    p_init.add_argument(
+        "--gh-pr-list-args",
+        default="",
+        help="Selection arguments passed to gh pr list",
+    )
 
     args = parser.parse_args()
 

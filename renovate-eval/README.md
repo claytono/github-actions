@@ -42,6 +42,19 @@ renovate_eval.py evaluate
 
 Lists open Renovate PRs, evaluates selected PR, shows actions menu.
 
+Natural-language list constraints are passed through as `gh pr list`
+arguments. For example, `renovate-eval 5 prs labeled with safe` runs:
+
+```bash
+RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init \
+  --gh-pr-list-args='--label renovate:safe --limit 5'
+```
+
+Caller-provided author, app, state, and limit options replace the defaults.
+Repository and output-format options are rejected because evaluation remains
+scoped to the current repository and consumes a fixed JSON response.
+
 ### CLI
 
 The default local installation path is `$HOME/.claude/skills/renovate-eval`. Set

@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
 log = logging.getLogger("renovate-eval")
@@ -128,6 +129,7 @@ def build_sentinel(
         "ci_status": ci_status,
         "eval_count": eval_count,
         "fingerprint": fingerprint,
+        "evaluated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
     return f"<!-- renovate-eval-skill:{json.dumps(payload, separators=(',', ':'))} -->"
 

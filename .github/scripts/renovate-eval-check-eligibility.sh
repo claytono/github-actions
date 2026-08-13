@@ -69,12 +69,19 @@ compute_fingerprint() {
     hash_stdin
 }
 
+TRUSTED_COMMENT_AUTHOR_JQ='(
+  .user.login == "github-actions[bot]" or
+  .author_association == "OWNER" or
+  .author_association == "MEMBER" or
+  .author_association == "COLLABORATOR"
+)'
+
 latest_eval_comment_body() {
   local repo_nwo=$1
   local pr_number=$2
   gh api "repos/$repo_nwo/issues/$pr_number/comments" \
     --paginate \
-    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .body' \
+    --jq ".[] | select($TRUSTED_COMMENT_AUTHOR_JQ) | select(.body | contains(\"<!-- renovate-eval-skill:\")) | .body" \
     2>/dev/null || true
 }
 
@@ -83,7 +90,7 @@ latest_eval_comment_id() {
   local pr_number=$2
   gh api "repos/$repo_nwo/issues/$pr_number/comments" \
     --paginate \
-    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .id' \
+    --jq ".[] | select($TRUSTED_COMMENT_AUTHOR_JQ) | select(.body | contains(\"<!-- renovate-eval-skill:\")) | .id" \
     2>/dev/null | tail -n1 || true
 }
 
@@ -92,7 +99,7 @@ latest_eval_comment_created_at() {
   local pr_number=$2
   gh api "repos/$repo_nwo/issues/$pr_number/comments" \
     --paginate \
-    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .created_at' \
+    --jq ".[] | select($TRUSTED_COMMENT_AUTHOR_JQ) | select(.body | contains(\"<!-- renovate-eval-skill:\")) | .created_at" \
     2>/dev/null | tail -n1 || true
 }
 

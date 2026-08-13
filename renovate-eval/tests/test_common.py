@@ -28,6 +28,7 @@ class TestSentinel:
         assert '"ci_status":"passing"' in result
         assert '"eval_count":1' in result
         assert '"fingerprint":"abc123"' in result
+        assert '"evaluated_at":"' in result
         assert result.endswith(" -->")
 
     def test_parse_sentinel_v4(self):

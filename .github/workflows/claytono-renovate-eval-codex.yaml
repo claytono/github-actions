@@ -76,6 +76,20 @@ on:
         required: false
         type: string
         default: '3600'
+      max_automatic_evaluations:
+        description: >-
+          Maximum automatic evaluations per PR as a non-negative integer; 0 is
+          unlimited
+        required: false
+        type: number
+        default: 0
+      fingerprint_ttl_seconds:
+        description: >-
+          Non-negative integer seconds before an unchanged fingerprint is
+          evaluated again
+        required: false
+        type: number
+        default: 604800
       setup_nix:
         description: Install Nix before evaluation
         required: false
@@ -130,6 +144,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
+          INPUT_MAX_AUTOMATIC_EVALUATIONS: ${{ inputs.max_automatic_evaluations }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           INPUT_TRIGGER: ${{ inputs.trigger }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target

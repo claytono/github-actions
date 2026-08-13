@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 
 WORKFLOW = (
     Path(__file__).resolve().parents[2]
@@ -26,6 +28,40 @@ def test_reusable_workflow_has_configurable_long_evaluation_timeout():
     assert "evaluation_timeout_minutes:" in workflow
     assert "default: 90" in workflow
     assert "timeout-minutes: ${{ inputs.evaluation_timeout_minutes }}" in workflow
+
+
+def test_reusable_workflow_configures_automatic_evaluation_frequency():
+    workflow = WORKFLOW.read_text()
+    inputs = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]["workflow_call"][
+        "inputs"
+    ]
+
+    assert inputs["max_automatic_evaluations"] == {
+        "description": (
+            "Maximum automatic evaluations per PR as a non-negative integer; "
+            "0 is unlimited"
+        ),
+        "required": "false",
+        "type": "number",
+        "default": "0",
+    }
+    assert (
+        "INPUT_MAX_AUTOMATIC_EVALUATIONS: "
+        "${{ inputs.max_automatic_evaluations }}" in workflow
+    )
+    assert inputs["fingerprint_ttl_seconds"] == {
+        "description": (
+            "Non-negative integer seconds before an unchanged fingerprint is "
+            "evaluated again"
+        ),
+        "required": "false",
+        "type": "number",
+        "default": "604800",
+    }
+    assert (
+        "INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}"
+        in workflow
+    )
 
 
 def test_reusable_workflow_checks_out_main_action_with_wait_override_support():

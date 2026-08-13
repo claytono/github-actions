@@ -74,7 +74,8 @@ latest_eval_comment_body() {
   local pr_number=$2
   gh api "repos/$repo_nwo/issues/$pr_number/comments" \
     --paginate \
-    --jq '.[] | select(.body | contains("<!-- renovate-eval-skill:")) | .body' 2>/dev/null || true
+    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .body' \
+    2>/dev/null || true
 }
 
 latest_eval_comment_id() {
@@ -82,7 +83,17 @@ latest_eval_comment_id() {
   local pr_number=$2
   gh api "repos/$repo_nwo/issues/$pr_number/comments" \
     --paginate \
-    --jq '.[] | select(.body | contains("<!-- renovate-eval-skill:")) | .id' 2>/dev/null | tail -n1 || true
+    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .id' \
+    2>/dev/null | tail -n1 || true
+}
+
+latest_eval_comment_created_at() {
+  local repo_nwo=$1
+  local pr_number=$2
+  gh api "repos/$repo_nwo/issues/$pr_number/comments" \
+    --paginate \
+    --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- renovate-eval-skill:")) | .created_at' \
+    2>/dev/null | tail -n1 || true
 }
 
 sentinel_json_for_pr() {
@@ -106,6 +117,7 @@ append_limit_notice() {
   local repo_nwo=$1
   local pr_number=$2
   local eval_count=$3
+  local max_evaluations=$4
   local comment_id existing_body notice new_body
 
   comment_id=$(latest_eval_comment_id "$repo_nwo" "$pr_number")
@@ -122,7 +134,7 @@ append_limit_notice() {
 
   notice=$(
     printf '%s %s' \
-      "> Note: **Automatic evaluation limit reached ($eval_count/3).**" \
+      "> Note: **Automatic evaluation limit reached ($eval_count/$max_evaluations).**" \
       "Re-trigger the workflow manually, or delete this comment to start fresh."
   )
   new_body=$(
@@ -131,9 +143,19 @@ append_limit_notice() {
   gh api --method PATCH "repos/$repo_nwo/issues/comments/$comment_id" -f body="$new_body"
 }
 
+timestamp_to_epoch() {
+  jq -nr --arg value "$1" '
+    $value
+    | sub("\\+00:00$"; "Z")
+    | sub("\\.[0-9]+Z$"; "Z")
+    | fromdateiso8601
+  '
+}
+
 evaluate_auto_pr() {
   local pr_number=$1
   local pr_json author base_ref head_sha labels fingerprint sentinel_json eval_count previous_fingerprint
+  local previous_evaluated_at evaluated_epoch now_epoch age_seconds
 
   validate_pr_number "$pr_number"
   pr_json=$(load_pr_json "$pr_number")
@@ -167,19 +189,49 @@ evaluate_auto_pr() {
   sentinel_json=$(sentinel_json_for_pr "$GITHUB_REPOSITORY" "$pr_number")
   eval_count=$(jq -r '.eval_count // 0' <<<"$sentinel_json" 2>/dev/null || echo 0)
   previous_fingerprint=$(jq -r '.fingerprint // empty' <<<"$sentinel_json" 2>/dev/null || echo "")
+  previous_evaluated_at=$(jq -r '.evaluated_at // empty' <<<"$sentinel_json" 2>/dev/null || echo "")
 
   if [[ -n "$previous_fingerprint" && "$fingerprint" == "$previous_fingerprint" ]]; then
-    echo "Skipping: PR content unchanged since last evaluation"
-    write_output should_evaluate false
-    return 0
+    if [[ -z "$previous_evaluated_at" ]]; then
+      previous_evaluated_at=$(latest_eval_comment_created_at "$GITHUB_REPOSITORY" "$pr_number")
+    fi
+    evaluated_epoch=""
+    if [[ -n "$previous_evaluated_at" ]]; then
+      evaluated_epoch=$(timestamp_to_epoch "$previous_evaluated_at" 2>/dev/null || true)
+    fi
+    if [[ -n "$evaluated_epoch" ]]; then
+      now_epoch=$(date +%s)
+      if ((evaluated_epoch > now_epoch)); then
+        echo "Matching fingerprint has a future evaluation timestamp; refreshing"
+        evaluated_epoch=""
+      fi
+    fi
+    if [[ -n "$evaluated_epoch" ]]; then
+      age_seconds=$((now_epoch - evaluated_epoch))
+      if ((age_seconds < INPUT_FINGERPRINT_TTL_SECONDS)); then
+        echo "Skipping: matching fingerprint evaluation is ${age_seconds}s old (TTL: ${INPUT_FINGERPRINT_TTL_SECONDS}s)"
+        write_output should_evaluate false
+        return 0
+      fi
+      echo "Matching fingerprint evaluation expired after ${age_seconds}s (TTL: ${INPUT_FINGERPRINT_TTL_SECONDS}s)"
+    else
+      echo "Matching fingerprint has no valid evaluation timestamp; refreshing"
+    fi
   fi
 
-  if ((eval_count >= 3)); then
-    echo "Eval count is $eval_count (>= 3)"
+  if ((\
+    INPUT_MAX_AUTOMATIC_EVALUATIONS > 0 && \
+    eval_count >= INPUT_MAX_AUTOMATIC_EVALUATIONS)) \
+      ; then
+    echo "Eval count is $eval_count (limit: $INPUT_MAX_AUTOMATIC_EVALUATIONS)"
     if [[ "${INPUT_DRY_RUN:-false}" == "true" ]]; then
       echo "Dry run: would append automatic evaluation limit notice"
     else
-      append_limit_notice "$GITHUB_REPOSITORY" "$pr_number" "$eval_count"
+      append_limit_notice \
+        "$GITHUB_REPOSITORY" \
+        "$pr_number" \
+        "$eval_count" \
+        "$INPUT_MAX_AUTOMATIC_EVALUATIONS"
     fi
     write_output should_evaluate false
     return 0
@@ -247,6 +299,21 @@ case "${INPUT_DRY_RUN:-false}" in
     exit 1
     ;;
 esac
+case "${INPUT_MAX_AUTOMATIC_EVALUATIONS:-0}" in
+  '' | *[!0-9]*)
+    echo "max_automatic_evaluations must be a non-negative integer, got: ${INPUT_MAX_AUTOMATIC_EVALUATIONS:-}" >&2
+    exit 1
+    ;;
+esac
+case "${INPUT_FINGERPRINT_TTL_SECONDS:-604800}" in
+  '' | *[!0-9]*)
+    echo "fingerprint_ttl_seconds must be a non-negative integer, got: ${INPUT_FINGERPRINT_TTL_SECONDS:-}" >&2
+    exit 1
+    ;;
+esac
+
+INPUT_MAX_AUTOMATIC_EVALUATIONS=${INPUT_MAX_AUTOMATIC_EVALUATIONS:-0}
+INPUT_FINGERPRINT_TTL_SECONDS=${INPUT_FINGERPRINT_TTL_SECONDS:-604800}
 
 write_output trigger "${INPUT_TRIGGER:-manual}"
 

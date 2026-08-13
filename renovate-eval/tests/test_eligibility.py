@@ -66,19 +66,15 @@ set -euo pipefail
 if [[ "$1 $2" == "pr view" ]]; then
   printf '%s\n' '{"number":123,"author":{"login":"renovate[bot]"},"baseRefName":"main","headRefOid":"head-sha","labels":[]}'
 elif [[ "$1" == "api" && "$*" == *"issues/123/comments"* ]]; then
-  if [[ "$*" == *"created_at"* ]]; then
-    if [[ "$*" == *'github-actions[bot]'* ]]; then
-      printf '%s\n' "${COMMENT_CREATED_AT:-}"
-    else
-      printf '%s\n' "${UNTRUSTED_COMMENT_CREATED_AT:-${COMMENT_CREATED_AT:-}}"
+  jq_expression=""
+  while (($# > 0)); do
+    if [[ "$1" == "--jq" ]]; then
+      jq_expression=$2
+      break
     fi
-  else
-    if [[ "$*" == *'github-actions[bot]'* ]]; then
-      printf '%s\n' "${COMMENT_BODY:-}"
-    else
-      printf '%s\n' "${UNTRUSTED_COMMENT_BODY:-${COMMENT_BODY:-}}"
-    fi
-  fi
+    shift
+  done
+  jq -r "$jq_expression" <<<"${COMMENTS_JSON:-[]}"
 elif [[ "$1" == "api" ]]; then
   exit 0
 else
@@ -107,6 +103,7 @@ def _evaluate(
     comment_created_at: str | None = None,
     untrusted_comment_body: str = "",
     untrusted_comment_created_at: str = "",
+    trusted_human_report: bool = False,
     eval_count: int = 1,
     max_evaluations: str = "0",
     ttl_seconds: str = "604800",
@@ -124,6 +121,41 @@ def _evaluate(
     }
     if evaluated_at is not None:
         sentinel["evaluated_at"] = evaluated_at
+    sentinel_body = (
+        f"<!-- renovate-eval-skill:{json.dumps(sentinel, separators=(',', ':'))} -->"
+    )
+    comments = []
+    if trusted_human_report:
+        comments.append(
+            {
+                "id": 1,
+                "user": {"login": "repository-owner"},
+                "author_association": "OWNER",
+                "body": sentinel_body,
+                "created_at": comment_created_at or evaluated_at or "",
+            }
+        )
+    else:
+        comments.append(
+            {
+                "id": 1,
+                "user": {"login": "github-actions[bot]"},
+                "author_association": "NONE",
+                "body": sentinel_body,
+                "created_at": comment_created_at or evaluated_at or "",
+            }
+        )
+    if untrusted_comment_body:
+        comments.append(
+            {
+                "id": 2,
+                "user": {"login": "historical-contributor"},
+                "author_association": "CONTRIBUTOR",
+                "body": untrusted_comment_body,
+                "created_at": untrusted_comment_created_at,
+            }
+        )
+
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -135,10 +167,7 @@ def _evaluate(
         "INPUT_PR_NUMBER": "123",
         "INPUT_TRIGGER": "auto",
         "TARGET_REPO_PATH": str(target),
-        "COMMENT_BODY": f"<!-- renovate-eval-skill:{json.dumps(sentinel, separators=(',', ':'))} -->",
-        "COMMENT_CREATED_AT": comment_created_at or evaluated_at or "",
-        "UNTRUSTED_COMMENT_BODY": untrusted_comment_body,
-        "UNTRUSTED_COMMENT_CREATED_AT": untrusted_comment_created_at,
+        "COMMENTS_JSON": json.dumps(comments, separators=(",", ":")),
     }
     result = subprocess.run(
         ["bash", str(SCRIPT)],
@@ -173,6 +202,21 @@ def test_same_fingerprint_is_skipped_within_ttl(tmp_path):
         tmp_path / "run",
         fingerprint=fingerprint,
         evaluated_at=fresh,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "should_evaluate=false" in output
+
+
+def test_trusted_human_report_is_skipped_within_ttl(tmp_path):
+    _target, fingerprint = _target_repo(tmp_path / "fingerprint")
+    fresh = datetime.now(UTC).isoformat()
+
+    result, output = _evaluate(
+        tmp_path / "run",
+        fingerprint=fingerprint,
+        evaluated_at=fresh,
+        trusted_human_report=True,
     )
 
     assert result.returncode == 0, result.stderr

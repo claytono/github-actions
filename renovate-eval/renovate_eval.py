@@ -717,6 +717,14 @@ def _copy_artifact(artifact_dir: str, src: str, dst: str) -> None:
         shutil.copy2(src_path, os.path.join(artifact_dir, dst))
 
 
+_TRUSTED_COMMENT_AUTHOR_JQ = (
+    '(.user.login == "github-actions[bot]" or '
+    '.author_association == "OWNER" or '
+    '.author_association == "MEMBER" or '
+    '.author_association == "COLLABORATOR")'
+)
+
+
 def _get_prev_eval_count(pr_number: int | str) -> int:
     """Get previous eval_count from existing sentinel comment."""
     from lib.common import parse_sentinel
@@ -728,7 +736,11 @@ def _get_prev_eval_count(pr_number: int | str) -> int:
             f"repos/{{owner}}/{{repo}}/issues/{pr_number}/comments",
             "--paginate",
             "--jq",
-            '[.[] | select(.body | contains("<!-- renovate-eval-skill:"))] | last | .body',
+            (
+                f"[.[] | select({_TRUSTED_COMMENT_AUTHOR_JQ}) "
+                '| select(.body | contains("<!-- renovate-eval-skill:"))] '
+                "| last | .body"
+            ),
         ],
         capture_output=True,
         text=True,
@@ -772,8 +784,11 @@ def _post_comment(pr_number: int | str, comment_body: str, artifact_dir: str) ->
                 f"repos/{repo_nwo}/issues/{pr_number}/comments",
                 "--paginate",
                 "--jq",
-                '[.[] | select(.body | contains("<!-- renovate-eval-skill:"))] '
-                "| last | {id, body}",
+                (
+                    f"[.[] | select({_TRUSTED_COMMENT_AUTHOR_JQ}) "
+                    '| select(.body | contains("<!-- renovate-eval-skill:"))] '
+                    "| last | {id, body}"
+                ),
             ],
             capture_output=True,
             text=True,

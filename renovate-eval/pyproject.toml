@@ -24,4 +24,5 @@ extend-select = ["RUF059"]
 [dependency-groups]
 dev = [
     "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.3",
 ]

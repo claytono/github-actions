@@ -6,12 +6,12 @@ actionlint: 1.7.12
 bash-interactive: 5.3p15
 git: 2.55.0
 jq: 1.8.2
-nodejs: 24.18.1
+nodejs: 24.19.0
 pre-commit: 4.5.1
-python3: 3.14.6-env
-renovate: 44.13.1
+python3: 3.14.7-env
+renovate: 44.24.3
 shfmt: 3.13.1
-uv: 0.12.1
+uv: 0.12.3
 yamlfix: 1.19.1
 yamllint: 1.37.1
 zizmor: 1.29.0

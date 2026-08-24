@@ -9,9 +9,9 @@ jq: 1.8.2
 nodejs: 24.19.0
 pre-commit: 4.5.1
 python3: 3.14.7-env
-renovate: 44.24.3
+renovate: 44.37.1
 shfmt: 3.13.1
-uv: 0.12.3
+uv: 0.12.5
 yamlfix: 1.19.1
 yamllint: 1.37.1
 zizmor: 1.29.0

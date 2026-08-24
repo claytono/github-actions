@@ -34,9 +34,8 @@ class TestBuildRoundOnePrompt:
             f.write("evaluator")
 
         repo_root = os.path.join(tmp_dir, "repo")
-        claude_dir = os.path.join(repo_root, ".claude")
-        os.makedirs(claude_dir)
-        with open(os.path.join(claude_dir, "renovate-eval.md"), "w") as f:
+        os.makedirs(repo_root)
+        with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
             f.write("repo context")
 
         prompt = build_round_one_prompt(
@@ -156,6 +155,114 @@ class TestBuildRevisionPrompt:
 
 
 class TestRunEvaluator:
+    @pytest.mark.parametrize("provider", ("codex", "claude"))
+    def test_repo_context_uses_shared_file_for_all_providers(
+        self, monkeypatch, tmp_dir, provider
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {"result": "", "usage": {}}
+
+        monkeypatch.setattr("lib.evaluator.run_agent", mock_run_agent)
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        with open(os.path.join(prompts_dir, "evaluator.md"), "w") as f:
+            f.write("evaluator")
+
+        repo_root = os.path.join(tmp_dir, "repo")
+        os.makedirs(repo_root)
+        shared_path = os.path.join(repo_root, ".renovate-eval.md")
+        with open(shared_path, "w") as f:
+            f.write("shared context")
+        for provider_dir in (".codex", ".claude"):
+            context_dir = os.path.join(repo_root, provider_dir)
+            os.makedirs(context_dir)
+            with open(os.path.join(context_dir, "renovate-eval.md"), "w") as f:
+                f.write("legacy context")
+
+        run_evaluator(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="model",
+            context="local",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+            provider=provider,
+        )
+
+        assert shared_path in called_with["prompt"]
+        assert os.path.join(repo_root, ".codex", "renovate-eval.md") not in called_with[
+            "prompt"
+        ]
+        assert os.path.join(repo_root, ".claude", "renovate-eval.md") not in called_with[
+            "prompt"
+        ]
+
+    @pytest.mark.parametrize("provider_dir", (".codex", ".claude"))
+    def test_provider_specific_repo_context_is_ignored(
+        self, monkeypatch, tmp_dir, provider_dir
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {"result": "", "usage": {}}
+
+        monkeypatch.setattr("lib.evaluator.run_agent", mock_run_agent)
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        with open(os.path.join(prompts_dir, "evaluator.md"), "w") as f:
+            f.write("evaluator")
+
+        repo_root = os.path.join(tmp_dir, "repo")
+        context_dir = os.path.join(repo_root, provider_dir)
+        os.makedirs(context_dir)
+        with open(os.path.join(context_dir, "renovate-eval.md"), "w") as f:
+            f.write("legacy context")
+
+        run_evaluator(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="model",
+            context="local",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+            provider=provider_dir.removeprefix("."),
+        )
+
+        assert "Repo context" not in called_with["prompt"]
+
+    def test_empty_repo_root_does_not_read_context_from_cwd(
+        self, monkeypatch, tmp_dir
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {"result": "", "usage": {}}
+
+        monkeypatch.setattr("lib.evaluator.run_agent", mock_run_agent)
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        with open(os.path.join(prompts_dir, "evaluator.md"), "w") as f:
+            f.write("evaluator")
+        with open(os.path.join(tmp_dir, ".renovate-eval.md"), "w") as f:
+            f.write("ambient context")
+        monkeypatch.chdir(tmp_dir)
+
+        run_evaluator(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="model",
+            context="local",
+            script_dir=tmp_dir,
+            repo_root="",
+        )
+
+        assert "Repo context" not in called_with["prompt"]
+
     def test_success(self, monkeypatch, tmp_dir):
         output = {
             "session_id": "abc123",

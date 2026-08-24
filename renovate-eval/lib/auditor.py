@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from .agent_runner import run_agent
-from .common import log
+from .common import find_repo_config_path, log
 from .evaluator import (
     INITIAL_SUPERPOWERS_RESEARCH_BLOCK,
     TARGETED_REVISION_SUPERPOWERS_BLOCK,
@@ -53,6 +53,7 @@ def build_round_one_prompt(
     artifact_dir: str,
     report: str,
     evidence: str,
+    repo_context: str = "",
     yolo: bool = False,
 ) -> str:
     """Build the auditor prompt for round 1."""
@@ -75,6 +76,17 @@ def build_round_one_prompt(
             TARGETED_REVISION_SUPERPOWERS_BLOCK.strip(),
         )
     )
+    repo_context_block = ""
+    if repo_context:
+        repo_context_block = f"""
+
+---
+
+## Repository Context
+
+The evaluator was given this repository-specific context:
+
+{repo_context}"""
 
     return f"""{preamble}
 
@@ -88,6 +100,7 @@ Evaluator yolo mode was {"enabled" if yolo else "disabled"} for this run.
 {evaluator_rubric}
 
 {runtime_requirements}
+{repo_context_block}
 
 ---
 
@@ -121,8 +134,20 @@ def build_revision_prompt(
     round_num: int,
     report: str,
     evidence: str,
+    repo_context: str = "",
 ) -> str:
     """Build the auditor revision prompt for round 2+."""
+    repo_context_block = ""
+    if repo_context:
+        repo_context_block = f"""
+
+## Repository Context
+
+The evaluator was given this repository-specific context:
+
+{repo_context}
+"""
+
     return f"""The evaluator has revised the report based on your feedback. Review the
 revised report and evidence below. Check whether your previous issues
 have been adequately addressed. Apply the same audit criteria.
@@ -130,6 +155,7 @@ have been adequately addressed. Apply the same audit criteria.
 ## Current Round
 
 {round_num}
+{repo_context_block}
 
 ## Revised Report
 
@@ -158,6 +184,8 @@ def run_auditor(
     evidence = _read_file(os.path.join(artifact_dir, "eval-evidence.md"))
     if not evidence:
         evidence = "No evidence file provided."
+    repo_context_file = find_repo_config_path(repo_root)
+    repo_context = _read_file(repo_context_file) if repo_context_file else ""
 
     output_json = os.path.join(artifact_dir, "auditor-output.json")
 
@@ -167,6 +195,7 @@ def run_auditor(
             artifact_dir=artifact_dir,
             report=report,
             evidence=evidence,
+            repo_context=repo_context,
             yolo=yolo,
         )
     else:
@@ -178,6 +207,7 @@ def run_auditor(
             round_num=round_num,
             report=report,
             evidence=evidence,
+            repo_context=repo_context,
         )
 
     output = run_agent(

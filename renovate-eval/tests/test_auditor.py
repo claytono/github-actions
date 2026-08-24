@@ -94,6 +94,233 @@ class TestBuildRevisionPrompt:
 
 
 class TestRunAuditor:
+    def test_initial_prompt_includes_repo_context_contents(self, monkeypatch, tmp_dir):
+        output = {
+            "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+            "usage": {},
+        }
+        called_with = {}
+
+        def mock_run(cmd, **kw):
+            called_with["input"] = kw.get("input", "")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=json.dumps(output), stderr=""
+            )
+
+        monkeypatch.setattr("lib.agent_runner.subprocess.run", mock_run)
+        repo_root = os.path.join(tmp_dir, "repo")
+        os.makedirs(repo_root)
+        with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
+            f.write("Repo-specific auditor guidance")
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Report")
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        for filename in ("auditor.md", "evaluator.md", "report-format.md"):
+            with open(os.path.join(prompts_dir, filename), "w") as f:
+                f.write("content\n---\ninstructions")
+
+        run_auditor(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="sonnet",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+        )
+
+        assert "Repo-specific auditor guidance" in called_with["input"]
+
+    def test_revision_prompt_includes_repo_context_contents(self, monkeypatch, tmp_dir):
+        output = {
+            "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+            "usage": {},
+        }
+        called_with = {}
+
+        def mock_run(cmd, **kw):
+            called_with["input"] = kw.get("input", "")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=json.dumps(output), stderr=""
+            )
+
+        monkeypatch.setattr("lib.agent_runner.subprocess.run", mock_run)
+        repo_root = os.path.join(tmp_dir, "repo")
+        os.makedirs(repo_root)
+        with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
+            f.write("Repo-specific auditor guidance")
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Revised report")
+
+        run_auditor(
+            round_num=2,
+            artifact_dir=tmp_dir,
+            model="sonnet",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+            session_id="aud123",
+        )
+
+        assert "Repo-specific auditor guidance" in called_with["input"]
+
+    @pytest.mark.parametrize("provider", ("codex", "claude"))
+    @pytest.mark.parametrize(
+        ("round_num", "session_id"),
+        ((1, ""), (2, "aud123")),
+        ids=("initial", "revision"),
+    )
+    def test_repo_context_uses_shared_file_for_all_providers(
+        self,
+        monkeypatch,
+        tmp_dir,
+        provider,
+        round_num,
+        session_id,
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {
+                "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+                "usage": {},
+            }
+
+        monkeypatch.setattr("lib.auditor.run_agent", mock_run_agent)
+        repo_root = os.path.join(tmp_dir, "repo")
+        os.makedirs(repo_root)
+        with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
+            f.write("shared context")
+        for provider_dir in (".codex", ".claude"):
+            context_dir = os.path.join(repo_root, provider_dir)
+            os.makedirs(context_dir)
+            with open(os.path.join(context_dir, "renovate-eval.md"), "w") as f:
+                f.write("legacy context")
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Report")
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        for filename in ("auditor.md", "evaluator.md", "report-format.md"):
+            with open(os.path.join(prompts_dir, filename), "w") as f:
+                f.write("content\n---\ninstructions")
+
+        run_auditor(
+            round_num=round_num,
+            artifact_dir=tmp_dir,
+            model="model",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+            provider=provider,
+            session_id=session_id,
+        )
+
+        assert "shared context" in called_with["prompt"]
+        assert "legacy context" not in called_with["prompt"]
+
+    @pytest.mark.parametrize("provider_dir", (".codex", ".claude"))
+    def test_provider_specific_repo_context_is_ignored(
+        self, monkeypatch, tmp_dir, provider_dir
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {
+                "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+                "usage": {},
+            }
+
+        monkeypatch.setattr("lib.auditor.run_agent", mock_run_agent)
+        repo_root = os.path.join(tmp_dir, "repo")
+        context_dir = os.path.join(repo_root, provider_dir)
+        os.makedirs(context_dir)
+        with open(os.path.join(context_dir, "renovate-eval.md"), "w") as f:
+            f.write("legacy context")
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Report")
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        for filename in ("auditor.md", "evaluator.md", "report-format.md"):
+            with open(os.path.join(prompts_dir, filename), "w") as f:
+                f.write("content\n---\ninstructions")
+
+        run_auditor(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="model",
+            script_dir=tmp_dir,
+            repo_root=repo_root,
+            provider=provider_dir.removeprefix("."),
+        )
+
+        assert "legacy context" not in called_with["prompt"]
+
+    def test_empty_repo_root_does_not_read_context_from_cwd(
+        self, monkeypatch, tmp_dir
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {
+                "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+                "usage": {},
+            }
+
+        monkeypatch.setattr("lib.auditor.run_agent", mock_run_agent)
+        with open(os.path.join(tmp_dir, ".renovate-eval.md"), "w") as f:
+            f.write("ambient context")
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Report")
+        prompts_dir = os.path.join(tmp_dir, "prompts")
+        os.makedirs(prompts_dir)
+        for filename in ("auditor.md", "evaluator.md", "report-format.md"):
+            with open(os.path.join(prompts_dir, filename), "w") as f:
+                f.write("content\n---\ninstructions")
+        monkeypatch.chdir(tmp_dir)
+
+        run_auditor(
+            round_num=1,
+            artifact_dir=tmp_dir,
+            model="model",
+            script_dir=tmp_dir,
+            repo_root="",
+        )
+
+        assert "ambient context" not in called_with["prompt"]
+
+    @pytest.mark.parametrize(
+        ("round_num", "session_id"),
+        ((1, ""), (2, "aud123")),
+        ids=("initial", "revision"),
+    )
+    def test_missing_repo_context_omits_context_and_keeps_tools_disabled(
+        self, monkeypatch, tmp_dir, round_num, session_id
+    ):
+        called_with = {}
+
+        def mock_run_agent(**kwargs):
+            called_with.update(kwargs)
+            return {
+                "result": '---JSON_START---\n{"status":"PASS","issues":[]}\n---JSON_END---',
+                "usage": {},
+            }
+
+        monkeypatch.setattr("lib.auditor.run_agent", mock_run_agent)
+        with open(os.path.join(tmp_dir, "eval-report.md"), "w") as f:
+            f.write("# Report")
+
+        run_auditor(
+            round_num=round_num,
+            artifact_dir=tmp_dir,
+            model="sonnet",
+            script_dir=tmp_dir,
+            repo_root=os.path.join(tmp_dir, "repo-without-context"),
+            session_id=session_id,
+        )
+
+        assert "## Repository Context" not in called_with["prompt"]
+        assert called_with["disable_tools"] is True
+
     def test_success(self, monkeypatch, tmp_dir):
         audit_json = '{"status":"PASS","issues":[]}'
         output = {

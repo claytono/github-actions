@@ -34,7 +34,7 @@ renovate_eval.py evaluate
 
 ## Usage
 
-### Interactive (Claude Code skill)
+### Interactive skill (Codex example)
 
 ```text
 /renovate-eval
@@ -46,10 +46,14 @@ Natural-language list constraints are passed through as `gh pr list`
 arguments. For example, `renovate-eval 5 prs labeled with safe` runs:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
+RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.codex/skills/renovate-eval}"
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init \
   --gh-pr-list-args='--label renovate:safe --limit 5'
 ```
+
+The reusable skill uses the evaluator bundled alongside the invoked `SKILL.md`,
+keeping its instructions and implementation on the same installation.
+Evaluation commands pass the selected provider explicitly.
 
 Caller-provided author, app, state, and limit options replace the defaults.
 Repository and output-format options are rejected because evaluation remains
@@ -57,23 +61,53 @@ scoped to the current repository and consumes a fixed JSON response.
 
 ### CLI
 
-The default local installation path is `$HOME/.claude/skills/renovate-eval`. Set
-`RENOVATE_EVAL_DIR` to this checkout when developing the shared action directly.
+For direct CLI use, Codex installations normally use
+`$HOME/.codex/skills/renovate-eval` and Claude installations normally use
+`$HOME/.claude/skills/renovate-eval`. Set `RENOVATE_EVAL_DIR` to this checkout
+when developing the shared action directly. Set `RENOVATE_EVAL_PROVIDER` to
+`claude` or `codex`; these examples default to Codex.
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
+RENOVATE_EVAL_PROVIDER="${RENOVATE_EVAL_PROVIDER:-codex}"
+RENOVATE_EVAL_CANDIDATES=()
+if [[ -n "${RENOVATE_EVAL_DIR:-}" ]]; then
+  RENOVATE_EVAL_CANDIDATES+=("$RENOVATE_EVAL_DIR")
+fi
+if [[ "$RENOVATE_EVAL_PROVIDER" == "codex" ]]; then
+  RENOVATE_EVAL_CANDIDATES+=(
+    "$HOME/.codex/skills/renovate-eval"
+    "$HOME/.claude/skills/renovate-eval"
+  )
+else
+  RENOVATE_EVAL_CANDIDATES+=(
+    "$HOME/.claude/skills/renovate-eval"
+    "$HOME/.codex/skills/renovate-eval"
+  )
+fi
+RENOVATE_EVAL_RESOLVED_DIR=""
+for RENOVATE_EVAL_CANDIDATE in "${RENOVATE_EVAL_CANDIDATES[@]}"; do
+  if [[ -f "$RENOVATE_EVAL_CANDIDATE/renovate_eval.py" ]]; then
+    RENOVATE_EVAL_RESOLVED_DIR="$RENOVATE_EVAL_CANDIDATE"
+    break
+  fi
+done
+: "${RENOVATE_EVAL_RESOLVED_DIR:?renovate-eval installation not found}"
+RENOVATE_EVAL_DIR="$RENOVATE_EVAL_RESOLVED_DIR"
 
 # Dry run (prints report, cleans up)
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
-  evaluate --pr 1234 --dry-run --context local
+  evaluate --pr 1234 --dry-run --context local \
+  --provider "$RENOVATE_EVAL_PROVIDER"
 
 # Post to GitHub (comment + labels)
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
-  evaluate --pr 1234 --post --context local
+  evaluate --pr 1234 --post --context local \
+  --provider "$RENOVATE_EVAL_PROVIDER"
 
 # Post after an external CI gate, taking a snapshot without waiting again
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
-  evaluate --pr 1234 --post --context ci --no-wait-for-ci
+  evaluate --pr 1234 --post --context ci --no-wait-for-ci \
+  --provider "$RENOVATE_EVAL_PROVIDER"
 
 # Use Codex locally
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
@@ -171,7 +205,8 @@ managed separately.
   round.
 - **Session resume**: Round 2+ reuses the evaluator/auditor session for faster
   revisions with warm context.
-- **Repo config drives behavior**: All repo-specific details (config paths,
-  tools, actions menu) come from `.claude/renovate-eval.md`.
+- **Repo config drives behavior**: Renovate-specific repository policy comes
+  from the provider-neutral root `.renovate-eval.md`. General repository
+  guidance remains in the active agent's native project instructions.
 - **Conservative default**: When uncertain, the evaluator labels as
   `renovate:risk`.

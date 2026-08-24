@@ -573,7 +573,7 @@ def _has_gh_pr_list_option(
 
 def cmd_init(args: argparse.Namespace) -> None:
     """Initialize session: detect environment, list Renovate PRs."""
-    from lib.common import require_gh_auth, require_tools
+    from lib.common import find_repo_config_path, require_gh_auth, require_tools
 
     try:
         gh_pr_list_args = shlex.split(args.gh_pr_list_args)
@@ -598,8 +598,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     repo_root = get_repo_root()
 
     plannotator = shutil.which("plannotator") is not None
-    repo_config = os.path.join(repo_root, ".claude", "renovate-eval.md")
-    has_repo_config = os.path.isfile(repo_config)
+    repo_config = find_repo_config_path(repo_root)
 
     # Check automerge availability
     automerge_result = subprocess.run(
@@ -678,7 +677,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     output = {
         "repo_root": repo_root,
         "plannotator_available": plannotator,
-        "repo_config": repo_config if has_repo_config else None,
+        "repo_config": repo_config,
         "automerge_available": automerge_available,
         "prs": prs,
     }
@@ -1004,7 +1003,6 @@ def main() -> None:
         default="",
         help="Selection arguments passed to gh pr list",
     )
-
     args = parser.parse_args()
 
     dispatch = {

@@ -13,6 +13,7 @@ from lib.common import (
     compute_fingerprint,
     embed_eval_data,
     extract_eval_data,
+    find_repo_config_path,
     get_ci_status,
     parse_sentinel,
 )
@@ -83,6 +84,18 @@ class TestEmbedExtract:
         embedded = embed_eval_data(valid_eval_data)
         extracted = extract_eval_data(embedded)
         assert extracted == valid_eval_data
+
+
+class TestRepoConfig:
+    def test_symlink_is_rejected(self, tmp_dir):
+        repo_root = os.path.join(tmp_dir, "repo")
+        os.makedirs(repo_root)
+        outside_config = os.path.join(tmp_dir, "outside.md")
+        with open(outside_config, "w") as f:
+            f.write("outside repository")
+        os.symlink(outside_config, os.path.join(repo_root, ".renovate-eval.md"))
+
+        assert find_repo_config_path(repo_root) is None
 
 
 class TestFingerprint:

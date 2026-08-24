@@ -15,22 +15,31 @@ description:
 
 ## Evaluation Provider
 
-For every `evaluate` command, replace `CURRENT_CHAT_PROVIDER` with the provider
-matching the chat tool running this skill:
+Replace `CURRENT_CHAT_PROVIDER` wherever it appears with the provider matching
+the chat tool running this skill:
 
 - Claude Code: `claude`
 - Codex: `codex`
 
-Always pass the provider explicitly. Do not rely on the CLI or environment
-default.
+Always pass `--provider` explicitly to the provider-aware `evaluate` command.
+Do not rely on the CLI or environment default. The `init` and `status` commands
+are provider-independent and do not accept `--provider`.
+
+Use the `renovate_eval.py` bundled next to this `SKILL.md`. Resolve it from the
+loaded skill's directory, not the current working directory, and record its
+absolute path. Do not search provider installation directories or combine this
+skill with an evaluator from another installation.
+
+In every later command, replace `RENOVATE_EVAL_PY` with that literal absolute
+path and `CURRENT_CHAT_PROVIDER` with the literal provider. Shell variables from
+an earlier tool call do not persist.
 
 ## PR Selection
 
 **Always run init first.** This detects environment capabilities and lists PRs:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init
+python3 "RENOVATE_EVAL_PY" init
 ```
 
 If the user scopes the PR list, translate their request into `gh pr list`
@@ -45,8 +54,7 @@ needed filter syntax is unclear.
 For example, `renovate-eval 5 prs labeled with safe` means:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" init \
+python3 "RENOVATE_EVAL_PY" init \
     --gh-pr-list-args='--label renovate:safe --limit 5'
 ```
 
@@ -56,15 +64,15 @@ The script outputs a JSON object:
 {
   "repo_root": "/path/to/repo",
   "plannotator_available": true,
-  "repo_config": "/path/to/repo/.claude/renovate-eval.md",
+  "repo_config": "/path/to/repo/.renovate-eval.md",
   "automerge_available": true,
   "prs": [...]
 }
 ```
 
 Store `plannotator_available`, `repo_config`, and `automerge_available` for
-later use. If `repo_config` is non-null, read it for custom actions and repo
-context.
+later use. `repo_config` is the provider-neutral root `.renovate-eval.md` file.
+If it is non-null, read it for custom actions and repo context.
 
 **If user specified a PR number:** Go to Evaluate or Present mode for that PR.
 
@@ -92,8 +100,7 @@ Then ask: "Which PR would you like to evaluate? (number or 'all')"
 Before running a new evaluation, check the PR status:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" status --pr "$PR"
+python3 "RENOVATE_EVAL_PY" status --pr "$PR"
 ```
 
 If the output contains a rendered report (starts with `#`), display it
@@ -108,8 +115,7 @@ Proceed to "evaluate mode."
 Run the evaluation engine in dry-run mode:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
+python3 "RENOVATE_EVAL_PY" \
     evaluate --pr "$PR" --dry-run --context local \
     --provider CURRENT_CHAT_PROVIDER
 ```
@@ -121,11 +127,11 @@ script output it. Then show the Actions Menu.
 
 ## Actions Menu
 
-**IMPORTANT: Repo config overrides skill defaults.** If
-`$REPO_ROOT/.claude/renovate-eval.md` exists, read its "Actions Menu" section.
-Any actions defined there MUST be included in the menu you present to the user.
-The repo config is authoritative — it may add actions, modify conditions for
-showing them, or change how they work.
+**IMPORTANT: Repo config overrides skill defaults.** If `repo_config` from init
+is non-null, read its "Actions Menu" section. Any actions defined there MUST be
+included in the menu you present to the user. The repo config is authoritative
+— it may add actions, modify conditions for showing them, or change how they
+work.
 
 Extract CI status from the status output or the evaluate stdout. If in present
 mode, the rendered report includes CI status. If in evaluate mode, parse the
@@ -136,8 +142,7 @@ Metadata JSON block printed to stdout.
 When the user selects merge, check live CI status using the check-ci script:
 
 ```bash
-RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" status --pr "$PR"
+python3 "RENOVATE_EVAL_PY" status --pr "$PR"
 ```
 
 Then apply the appropriate merge strategy:
@@ -150,9 +155,8 @@ Then apply the appropriate merge strategy:
   `gh pr merge $PR --rebase`
 - **CI failing/unknown**: Do NOT offer merge. Show "Fix CI" instead.
 
-The `automerge_available` flag comes from init output. Read
-`$REPO_ROOT/.claude/renovate-eval.md` for repo-specific merge flags (e.g.,
-`--rebase`).
+The `automerge_available` flag comes from init output. Read `repo_config` for
+repo-specific merge flags (e.g., `--rebase`).
 
 **Default actions (always show):**
 
@@ -166,7 +170,7 @@ The `automerge_available` flag comes from init output. Read
 - **Fix CI** — only if CI is `"failing"` or `"unknown"`
 - **View in Plannotator** — only if `plannotator_available` is `true`
 
-**Then add any actions from `$REPO_ROOT/.claude/renovate-eval.md`.**
+**Then add any actions from `repo_config`.**
 
 Print all actions as a numbered list. Wait for user selection.
 
@@ -176,14 +180,14 @@ Print all actions as a numbered list. Wait for user selection.
 - **Review later**: No action. If evaluating multiple PRs, move to next.
 - **Close**: Warn first: "Closing tells Renovate to ignore this version
   permanently. Are you sure?" Then `gh pr close $PR`.
-- **Deploy for testing**: Read `.claude/renovate-eval.md` and repo rules (e.g.,
-  `.claude/rules/`) for deployment instructions specific to this repo.
+- **Deploy for testing**: Read `repo_config`, follow the repository instructions
+  loaded by the current agent, and read any detailed deployment guidance those
+  instructions reference before acting.
 - **Fix CI**: Investigate the CI failure and attempt to fix it.
 - **Re-evaluate**: Run this to regenerate and post updated evaluation:
 
   ```bash
-  RENOVATE_EVAL_DIR="${RENOVATE_EVAL_DIR:-$HOME/.claude/skills/renovate-eval}"
-  python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
+  python3 "RENOVATE_EVAL_PY" \
     evaluate --pr "$PR" --post --context local \
     --provider CURRENT_CHAT_PROVIDER
   ```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 
 import pytest
@@ -34,10 +35,9 @@ def run_init(monkeypatch, capsys):
     monkeypatch.setattr(renovate_eval.subprocess, "run", fake_run)
     monkeypatch.setattr(renovate_eval, "get_repo_root", lambda: "/repo")
 
-    def run(gh_pr_list_args):
-        renovate_eval.cmd_init(
-            argparse.Namespace(gh_pr_list_args=gh_pr_list_args)
-        )
+    def run(gh_pr_list_args, *, repo_root="/repo"):
+        monkeypatch.setattr(renovate_eval, "get_repo_root", lambda: repo_root)
+        renovate_eval.cmd_init(argparse.Namespace(gh_pr_list_args=gh_pr_list_args))
         return next(cmd for cmd in commands if cmd[:3] == ["gh", "pr", "list"])
 
     return run
@@ -80,6 +80,34 @@ def test_init_prefers_user_scalar_filters(run_init):
         "-L",
         "5",
     ]
+
+
+def test_init_uses_shared_config_and_omits_provider_rules(
+    run_init, capsys, tmp_dir
+):
+    repo_root = os.path.join(tmp_dir, "repo")
+    os.makedirs(repo_root)
+    with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
+        f.write("shared config")
+    for provider_dir in (".codex", ".claude"):
+        context_dir = os.path.join(repo_root, provider_dir)
+        os.makedirs(os.path.join(context_dir, "rules"))
+
+    run_init("", repo_root=repo_root)
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["repo_config"] == os.path.join(repo_root, ".renovate-eval.md")
+    assert "repo_rules" not in result
+
+
+def test_init_returns_null_when_shared_config_is_missing(run_init, capsys, tmp_dir):
+    repo_root = os.path.join(tmp_dir, "repo-without-config")
+
+    run_init("", repo_root=repo_root)
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["repo_config"] is None
+    assert "repo_rules" not in result
 
 
 @pytest.mark.parametrize(

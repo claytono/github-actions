@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .agent_runner import run_agent
+from .common import find_repo_config_path
 
 
 INITIAL_SUPERPOWERS_RESEARCH_BLOCK = """
@@ -85,15 +86,16 @@ def build_round_one_prompt(
     artifact_dir: str,
     repo_root: str,
     context: str,
+    provider: str = "claude",
     instructions: str = "",
     yolo: bool = False,
 ) -> str:
     """Build the evaluator prompt for round 1."""
     evaluator_md = _read_file(os.path.join(script_dir, "prompts", "evaluator.md"))
 
-    repo_context_file = os.path.join(repo_root, ".claude", "renovate-eval.md")
+    repo_context_file = find_repo_config_path(repo_root)
     repo_context_line = ""
-    if os.path.isfile(repo_context_file):
+    if repo_context_file:
         repo_context_line = f"- **Repo context:** {repo_context_file}"
 
     instructions_block = ""
@@ -203,6 +205,7 @@ def run_evaluator(
             artifact_dir=artifact_dir,
             repo_root=repo_root,
             context=context,
+            provider=provider,
             instructions=instructions,
             yolo=yolo,
         )

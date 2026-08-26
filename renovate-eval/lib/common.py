@@ -50,6 +50,18 @@ LABEL_COLORS = {
     "renovate:evaluated": "0075ca",
 }
 
+
+def find_repo_config_path(repo_root: str) -> str | None:
+    """Return the repository's provider-neutral Renovate evaluation config."""
+    if not repo_root:
+        return None
+
+    candidate = os.path.join(repo_root, ".renovate-eval.md")
+    if os.path.islink(candidate):
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
+
 VALID_PACKAGE_TYPES = [
     "docker",
     "helm",

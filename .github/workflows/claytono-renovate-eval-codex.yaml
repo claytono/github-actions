@@ -6,7 +6,7 @@
 # - The caller repository is in the claytono account.
 # - The caller has a self-hosted runner label that can run Codex, default: codex.
 # - Renovate PRs are authored by the Renovate GitHub app/bot.
-# - The caller repository has .claude/renovate-eval.md.
+# - Repository context may be provided in the root .renovate-eval.md file.
 # - Cachix is optional but expects CACHIX_AUTH_TOKEN when setup_cachix is true.
 #
 # Caller example:

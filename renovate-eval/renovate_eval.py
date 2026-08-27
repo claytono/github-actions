@@ -13,6 +13,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from lib.common import (
+    TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS,
+    TRUSTED_COMMENT_AUTHORS,
+)
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -95,6 +100,61 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         )
     finally:
         cleanup()
+
+
+def require_inventory_prerequisites() -> None:
+    """Verify local prerequisites for the inventory command."""
+    from lib.common import require_gh_auth, require_tools
+
+    require_tools("gh")
+    require_gh_auth()
+
+
+def build_inventory(**kwargs):
+    """Load the inventory implementation lazily for CLI startup speed."""
+    from lib.inventory import build_inventory as _build_inventory
+
+    return _build_inventory(**kwargs)
+
+
+def build_settled_inventory(**kwargs):
+    """Load the settled targeted inventory implementation lazily."""
+    from lib.inventory import build_settled_inventory as _build_settled_inventory
+
+    return _build_settled_inventory(**kwargs)
+
+
+def observe_pr(pr_number: int):
+    """Load the low-cost PR observation implementation lazily."""
+    from lib.inventory import observe_pr as _observe_pr
+
+    return _observe_pr(pr_number)
+
+
+def cmd_inventory(args: argparse.Namespace) -> None:
+    """Print a machine-readable inventory of open Renovate PRs."""
+    require_inventory_prerequisites()
+    kwargs = {
+        "evaluation_max_age_seconds": args.evaluation_max_age_seconds,
+        "pr_number": args.pr,
+    }
+    if args.pr is not None:
+        try:
+            inventory = build_settled_inventory(
+                **kwargs,
+                progress=lambda message: print(message, file=sys.stderr),
+            )
+        except TimeoutError as exc:
+            raise SystemExit(str(exc)) from None
+    else:
+        inventory = build_inventory(**kwargs)
+    print(json.dumps(inventory, indent=2))
+
+
+def cmd_observe(args: argparse.Namespace) -> None:
+    """Print low-cost mutable state for one PR while CI settles."""
+    require_inventory_prerequisites()
+    print(json.dumps(observe_pr(args.pr), indent=2))
 
 
 def _run_evaluate(
@@ -716,12 +776,18 @@ def _copy_artifact(artifact_dir: str, src: str, dst: str) -> None:
         shutil.copy2(src_path, os.path.join(artifact_dir, dst))
 
 
-_TRUSTED_COMMENT_AUTHOR_JQ = (
-    '(.user.login == "github-actions[bot]" or '
-    '.author_association == "OWNER" or '
-    '.author_association == "MEMBER" or '
-    '.author_association == "COLLABORATOR")'
-)
+_TRUSTED_COMMENT_AUTHOR_JQ = "(" + " or ".join(
+    [
+        *(
+            f".user.login == {json.dumps(author)}"
+            for author in sorted(TRUSTED_COMMENT_AUTHORS)
+        ),
+        *(
+            f".author_association == {json.dumps(association)}"
+            for association in sorted(TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS)
+        ),
+    ]
+) + ")"
 
 
 def _get_prev_eval_count(pr_number: int | str) -> int:
@@ -922,6 +988,13 @@ def _persist_report(report_dir: str, pr_number: int | str, artifact_dir: str) ->
 # --- Argument parsing ---
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="renovate_eval.py",
@@ -931,7 +1004,7 @@ def main() -> None:
 
     # evaluate
     p_eval = sub.add_parser("evaluate", help="Run evaluation pipeline")
-    p_eval.add_argument("--pr", required=True, type=int)
+    p_eval.add_argument("--pr", required=True, type=_positive_int)
     mode_group = p_eval.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--dry-run", dest="mode", action="store_const", const="dry-run"
@@ -985,7 +1058,7 @@ def main() -> None:
 
     # status
     p_status = sub.add_parser("status", help="Quick PR status check")
-    p_status.add_argument("--pr", required=True, type=int)
+    p_status.add_argument("--pr", required=True, type=_positive_int)
 
     # render
     p_render = sub.add_parser("render", help="Render eval-data.json to markdown")
@@ -1003,6 +1076,31 @@ def main() -> None:
         default="",
         help="Selection arguments passed to gh pr list",
     )
+
+    # inventory
+    p_inventory = sub.add_parser(
+        "inventory", help="List open Renovate PRs with merge-safety evidence"
+    )
+    p_inventory.add_argument(
+        "--evaluation-max-age-seconds",
+        type=int,
+        default=7 * 24 * 60 * 60,
+        help="Maximum age of a qualifying evaluation (default: 7 days)",
+    )
+    p_inventory.add_argument(
+        "--pr",
+        type=_positive_int,
+        help=(
+            "Wait for stable required checks, then classify only this pull "
+            "request instead of the complete queue"
+        ),
+    )
+
+    # observe
+    p_observe = sub.add_parser(
+        "observe", help="Read one PR's head and required-check state"
+    )
+    p_observe.add_argument("--pr", required=True, type=_positive_int)
     args = parser.parse_args()
 
     dispatch = {
@@ -1011,6 +1109,8 @@ def main() -> None:
         "render": cmd_render,
         "validate": cmd_validate,
         "init": cmd_init,
+        "inventory": cmd_inventory,
+        "observe": cmd_observe,
     }
     dispatch[args.command](args)
 

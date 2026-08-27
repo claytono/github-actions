@@ -50,6 +50,19 @@ LABEL_COLORS = {
     "renovate:evaluated": "0075ca",
 }
 
+TRUSTED_COMMENT_AUTHORS = frozenset({"github-actions", "github-actions[bot]"})
+TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS = frozenset(
+    {"OWNER", "MEMBER", "COLLABORATOR"}
+)
+
+
+def is_trusted_comment_author(author: str, association: str) -> bool:
+    """Return whether an evaluation comment author may supply trusted evidence."""
+    return (
+        author in TRUSTED_COMMENT_AUTHORS
+        or association in TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS
+    )
+
 
 def find_repo_config_path(repo_root: str) -> str | None:
     """Return the repository's provider-neutral Renovate evaluation config."""
@@ -227,11 +240,16 @@ def compute_fingerprint(diff_path: str) -> str:
             f"Cannot compute fingerprint: {diff_path} does not exist"
         )
 
-    h = hashlib.sha256()
     with open(diff_path, "rb") as f:
-        for line in f:
-            if line.startswith((b"+", b"-")) and not line.startswith((b"+++", b"---")):
-                h.update(line)
+        return compute_fingerprint_bytes(f.read())
+
+
+def compute_fingerprint_bytes(diff: bytes) -> str:
+    """Compute the canonical fingerprint directly from raw diff bytes."""
+    h = hashlib.sha256()
+    for line in diff.splitlines(keepends=True):
+        if line.startswith((b"+", b"-")) and not line.startswith((b"+++", b"---")):
+            h.update(line)
     return h.hexdigest()
 
 

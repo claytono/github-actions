@@ -122,12 +122,49 @@ python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" \
 # Quick status check (live CI + existing eval)
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" status --pr 1234
 
+# Machine-readable inventory of every open Renovate PR
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory
+
+# Wait for stable CI, then classify one PR without reloading the queue
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory --pr 1234
+
+# Low-cost diagnostic snapshot of one PR's head and required checks
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" observe --pr 1234
+
 # Validate eval-data.json
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" validate path/to/eval-data.json
 
 # Render eval-data.json to markdown
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" render path/to/eval-data.json --ci-status passing
 ```
+
+`inventory` is the read-only integration boundary for batch maintenance tools.
+Without `--pr`, it returns every open PR from the Renovate GitHub App, including
+active auto-merges as an informational queue snapshot. Callers must use the
+targeted form as the authoritative pre-write gate. With `--pr`, it waits up to
+30 minutes for required checks to settle, follows replacement heads created by
+Renovate or CI, and classifies only after the same terminal head is observed
+before and after the safety read.
+The target branch name and revision must remain stable across the same read. It
+never fingerprints a merely pending head. Both forms include exact head/base
+metadata, changed paths, labels, required-check state, mergeability, trusted
+evaluation freshness and fingerprint state, and a generic `safety_qualified`
+decision with explicit reasons. They do not expose evaluation report bodies or
+individual required-check records. A PR qualifies only when its trusted v4 safe
+sentinel matches the current diff, is at most seven days old, all nonempty
+required checks pass, its labels agree, and GitHub reports a clean mergeable
+state. The inventory conditionally follows GitHub's REST pagination when the
+GraphQL changed-path or comment collections reach their response limits; if a
+complete safety-relevant collection cannot be confirmed, the PR does not
+qualify. Use
+`--evaluation-max-age-seconds` to change the freshness window for a caller with
+a different policy.
+
+`observe --pr` is the low-cost diagnostic boundary used internally by targeted
+inventory. It returns only the PR number, open/closed state, current head SHA,
+target branch name and SHA, required checks, and whether both revisions remained
+stable while the checks were read. It does not read comments or download the
+diff, and its output is not a safety decision.
 
 ### GitHub Actions
 

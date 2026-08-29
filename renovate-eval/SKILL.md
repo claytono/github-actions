@@ -42,6 +42,9 @@ an earlier tool call do not persist.
 python3 "RENOVATE_EVAL_PY" init
 ```
 
+If `init` fails, display its stderr verbatim and stop. Do not retry the command,
+query GitHub another way, or construct a partial PR list.
+
 If the user scopes the PR list, translate their request into `gh pr list`
 selection arguments and pass them as one quoted value to `--gh-pr-list-args`.
 User-provided author, app, state, and limit values replace the script defaults;

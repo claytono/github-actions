@@ -187,3 +187,69 @@ def test_init_rejects_malformed_gh_pr_list_args(run_init):
 
     with pytest.raises(SystemExit, match="Invalid --gh-pr-list-args"):
         run_init("--label 'renovate:safe")
+
+
+@pytest.mark.parametrize(
+    ("gh_error", "expected_error"),
+    [
+        ("GraphQL: API rate limit exceeded\n", "GraphQL: API rate limit exceeded\n"),
+        ("GraphQL: API rate limit exceeded", "GraphQL: API rate limit exceeded"),
+        ("", "ERROR: Failed to fetch PRs\n"),
+    ],
+)
+def test_init_returns_gh_pr_list_error(
+    monkeypatch, capsys, gh_error, expected_error
+):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[:3] == ["gh", "auth", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command[:2] == ["gh", "api"]:
+            return subprocess.CompletedProcess(command, 0, stdout="true\n", stderr="")
+        if command[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr=gh_error,
+            )
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(renovate_eval.shutil, "which", lambda _: "/usr/bin/gh")
+    monkeypatch.setattr(renovate_eval.subprocess, "run", fake_run)
+    monkeypatch.setattr(renovate_eval, "get_repo_root", lambda: "/repo")
+
+    with pytest.raises(SystemExit) as exc_info:
+        renovate_eval.cmd_init(argparse.Namespace(gh_pr_list_args=""))
+
+    assert exc_info.value.code == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == expected_error
+    assert commands == [
+        ["gh", "auth", "status"],
+        [
+            "gh",
+            "api",
+            "repos/{owner}/{repo}",
+            "--jq",
+            ".allow_auto_merge // false",
+        ],
+        [
+            "gh",
+            "pr",
+            "list",
+            "--author",
+            "app/renovate",
+            "--state",
+            "open",
+            "--json",
+            "number,title,createdAt,autoMergeRequest,statusCheckRollup,labels",
+            "--limit",
+            "100",
+        ],
+    ]

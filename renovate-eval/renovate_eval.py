@@ -699,7 +699,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         timeout=30,
     )
     if pr_result.returncode != 0:
-        print("ERROR: Failed to fetch PRs", file=sys.stderr)
+        error = pr_result.stderr or "ERROR: Failed to fetch PRs\n"
+        sys.stderr.write(error)
         sys.exit(1)
 
     all_prs = json.loads(pr_result.stdout)

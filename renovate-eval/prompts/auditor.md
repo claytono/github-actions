@@ -61,9 +61,7 @@ Check each of these against the embedded rubric:
 - **Follow-up quality:** Are unresolved consequential compatibility questions
   placed in Further Follow-up with prior evidence, an exact quantification step,
   and explicit verdict outcomes? Are optional-feature unknowns excluded from
-  risk calibration? For consequential schema or data migrations, does the
-  report verify the recoverable backup and restore path or retain that
-  **recovery prerequisite** as an exact follow-up?
+  risk calibration?
 
 Your job is to check whether the evaluator followed the rubric, not to
 substitute your own judgment for what the rubric says. If the rubric says X and

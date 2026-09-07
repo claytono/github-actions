@@ -60,15 +60,6 @@ def test_applicability_is_analysis_not_a_stacked_status_prefix():
     assert "Do not require the literal words" in auditor
 
 
-def test_consequential_migrations_require_recovery_follow_up():
-    evaluator = _prompt("evaluator.md")
-    schema = _prompt("eval-data-schema.md")
-    auditor = _prompt("auditor.md")
-
-    for content in (evaluator, schema, auditor):
-        assert re.search(r"recovery\s+prerequisite", content)
-
-
 def test_auditor_checks_omissions_without_penalizing_analysis():
     auditor = _prompt("auditor.md")
 

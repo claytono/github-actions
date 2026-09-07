@@ -125,9 +125,7 @@ unknowns that could not be quantified with the evaluator's
 available access. For each item state: (1) what remains unknown, (2) why it
 matters, (3) what evidence was already checked, (4) the exact follow-up needed,
 and (5) how each possible result changes the verdict. This is not a generic test
-checklist. For a consequential schema or data migration, an unverified
-recoverable backup and restore path is an unresolved **recovery prerequisite**
-and belongs here. Set to `null` when no consequential unknown remains.
+checklist. Set to `null` when no consequential unknown remains.
 
 ### sources (required, non-empty array)
 

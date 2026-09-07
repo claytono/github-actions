@@ -163,9 +163,14 @@ your own independent research:
    project-specific gates. Do not use `renovate:caution` merely because that
    normal workflow should be run.
 
+   Apply repository policy when judging whether a consequence or unresolved
+   question requires action beyond normal operations. Do not invent additional
+   repository requirements. Distinguish a policy accepting a consequence from
+   factual evidence that the consequence cannot happen.
+
    Use `renovate:safe` when the PR appears routine for the repository's actual
-   usage: no known regression, no compatibility concern, no migration concern,
-   no relevant behavior/default/API/security/access change, and no targeted
+   usage: no known regression, no compatibility concern, no relevant
+   behavior/default/API/security/access change, and no targeted
    validation need beyond the repository's normal workflow. Security patches or
    CVE fixes that do not introduce a separate concrete concern remain
    `renovate:safe`; they reduce risk rather than adding it.
@@ -174,9 +179,9 @@ your own independent research:
    concern that is relevant to the repository's actual usage and requires
    targeted validation beyond the normal dependency-update workflow.
 
-   Caution-worthy concerns include: data/state/schema migration; changed
-   defaults affecting actual usage; API, CLI, protocol, auth, output, or
-   file-format compatibility change; permission, access, credential, or
+   Caution-worthy concerns include: changed defaults affecting actual usage;
+   API, CLI, protocol, auth, output, or file-format compatibility change;
+   permission, access, credential, or
    trust-boundary expansion; runtime/platform/dependency change with known
    compatibility concerns; operational behavior changes with plausible impact
    such as lifecycle, concurrency, retry, timeout, scheduling, or resource
@@ -187,8 +192,8 @@ your own independent research:
 
    Apply uncertainty according to consequence. Unknown enablement of an
    optional feature is discovery information and does not raise the label.
-   Unknown exposure to a breaking API, migration prerequisite, authentication
-   change, platform requirement, or other compatibility boundary may require
+   Unknown exposure to a breaking API, authentication change, platform
+   requirement, or other compatibility boundary may require
    `renovate:risk`. Use `renovate:breaking` only for confirmed incompatibility
    that requires remediation.
 
@@ -241,11 +246,6 @@ safe that causes problems.
 **Conservative inclusion default:** If a qualifying feature or change has
 unknown applicability, include it and label the uncertainty. Never omit it
 because the current context lacks access to the authoritative configuration.
-
-For any consequential schema or data migration that could require rollback,
-treat a verified recoverable backup and restore path as a **recovery
-prerequisite**. If available evidence cannot establish that prerequisite,
-include an exact verification step and verdict outcomes in Further Follow-up.
 
 ### 2. Evidence file (eval-evidence.md)
 

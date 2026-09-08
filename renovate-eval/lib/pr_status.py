@@ -20,9 +20,12 @@ def get_existing_eval_comment(pr_number: int | str) -> str | None:
                 "--json",
                 "comments",
                 "--jq",
-                '.comments | map(select(.body | contains("<!-- renovate-eval-skill:"))) '
-                "| sort_by(.createdAt) | last | .body",
+                (
+                    '.comments | map(select(.body | contains("<!-- renovate-eval-skill:"))) '
+                    "| sort_by(.createdAt) | last | .body"
+                ),
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,

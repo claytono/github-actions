@@ -7,7 +7,6 @@ import os
 import subprocess
 
 import pytest
-
 from lib.fetch_pr_data import (
     detect_repo,
     fetch_body,
@@ -369,7 +368,9 @@ class TestFetchRelatedIssues:
             if "closingIssuesReferences" in cmd_str:
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
             if "timeline" in cmd_str:
-                return subprocess.CompletedProcess(cmd, 0, stdout="{bad json", stderr="")
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="{bad json", stderr=""
+                )
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr("lib.fetch_pr_data.subprocess.run", mock_run)

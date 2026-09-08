@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import subprocess
 
 from lib.common import build_sentinel, embed_eval_data

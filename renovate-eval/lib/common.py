@@ -51,9 +51,7 @@ LABEL_COLORS = {
 }
 
 TRUSTED_COMMENT_AUTHORS = frozenset({"github-actions", "github-actions[bot]"})
-TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS = frozenset(
-    {"OWNER", "MEMBER", "COLLABORATOR"}
-)
+TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
 
 def is_trusted_comment_author(author: str, association: str) -> bool:
@@ -107,6 +105,7 @@ def require_gh_auth() -> None:
     if gh_token:
         result = subprocess.run(
             ["gh", "repo", "view"],
+            check=False,
             capture_output=True,
             timeout=30,
         )
@@ -117,6 +116,7 @@ def require_gh_auth() -> None:
         return
     result = subprocess.run(
         ["gh", "auth", "status"],
+        check=False,
         capture_output=True,
         timeout=30,
     )
@@ -194,7 +194,7 @@ def extract_eval_data(comment_body: str) -> dict[str, Any] | None:
     try:
         decoded = base64.b64decode(match.group(1).replace("\n", "")).decode()
         return json.loads(decoded)
-    except (json.JSONDecodeError, Exception):
+    except (ValueError, RecursionError):
         return None
 
 
@@ -206,6 +206,7 @@ def get_ci_status(pr_number: int | str) -> str:
     try:
         result = subprocess.run(
             ["gh", "pr", "checks", str(pr_number), "--json", "name,bucket"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -260,6 +261,7 @@ def run_diff(pr_number: int | str, output_file: str) -> None:
     """Write PR diff to output_file. Tries gh pr diff, falls back to git."""
     result = subprocess.run(
         ["gh", "pr", "diff", str(pr_number)],
+        check=False,
         capture_output=True,
         timeout=120,
     )
@@ -280,6 +282,7 @@ def run_diff(pr_number: int | str, output_file: str) -> None:
             "-q",
             ".baseRefName",
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -295,6 +298,7 @@ def run_diff(pr_number: int | str, output_file: str) -> None:
             "-q",
             ".headRefName",
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -322,6 +326,7 @@ def run_diff(pr_number: int | str, output_file: str) -> None:
     )
     result = subprocess.run(
         ["git", "diff", "--no-ext-diff", f"origin/{base_ref}...origin/{head_ref}"],
+        check=False,
         capture_output=True,
         timeout=120,
     )

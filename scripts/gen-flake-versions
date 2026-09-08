@@ -76,13 +76,15 @@ def diff_table(old: dict[str, str], new: dict[str, str]) -> str:
             rows.append(f"| {name} | {old_v} | {new_v} |")
     if not rows:
         return ""
-    return "\n".join([
-        "### Package version changes",
-        "",
-        "| Package | Old | New |",
-        "|---------|-----|-----|",
-        *rows,
-    ])
+    return "\n".join(
+        [
+            "### Package version changes",
+            "",
+            "| Package | Old | New |",
+            "|---------|-----|-----|",
+            *rows,
+        ]
+    )
 
 
 def main() -> None:

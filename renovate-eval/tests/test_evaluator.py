@@ -7,7 +7,6 @@ import os
 import subprocess
 
 import pytest
-
 from lib.evaluator import build_revision_prompt, build_round_one_prompt, run_evaluator
 
 
@@ -193,12 +192,14 @@ class TestRunEvaluator:
         )
 
         assert shared_path in called_with["prompt"]
-        assert os.path.join(repo_root, ".codex", "renovate-eval.md") not in called_with[
-            "prompt"
-        ]
-        assert os.path.join(repo_root, ".claude", "renovate-eval.md") not in called_with[
-            "prompt"
-        ]
+        assert (
+            os.path.join(repo_root, ".codex", "renovate-eval.md")
+            not in called_with["prompt"]
+        )
+        assert (
+            os.path.join(repo_root, ".claude", "renovate-eval.md")
+            not in called_with["prompt"]
+        )
 
     @pytest.mark.parametrize("provider_dir", (".codex", ".claude"))
     def test_provider_specific_repo_context_is_ignored(
@@ -234,9 +235,7 @@ class TestRunEvaluator:
 
         assert "Repo context" not in called_with["prompt"]
 
-    def test_empty_repo_root_does_not_read_context_from_cwd(
-        self, monkeypatch, tmp_dir
-    ):
+    def test_empty_repo_root_does_not_read_context_from_cwd(self, monkeypatch, tmp_dir):
         called_with = {}
 
         def mock_run_agent(**kwargs):

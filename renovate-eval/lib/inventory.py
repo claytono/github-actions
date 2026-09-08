@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 
 from .common import (
     VALID_LABELS,
@@ -73,15 +74,13 @@ def _author_login(value: Any) -> str:
 
 def _comment_association(comment: dict[str, Any]) -> str:
     return str(
-        comment.get("authorAssociation")
-        or comment.get("author_association")
-        or ""
+        comment.get("authorAssociation") or comment.get("author_association") or ""
     )
 
 
 def _flatten_paginated_response(value: Any, *, endpoint: str) -> list[dict[str, Any]]:
     if not isinstance(value, list):
-        raise RuntimeError(f"gh api {endpoint} returned invalid paginated data")
+        raise TypeError(f"gh api {endpoint} returned invalid paginated data")
     if not value:
         return []
     pages = value if all(isinstance(page, list) for page in value) else [value]
@@ -120,7 +119,7 @@ def _complete_changed_paths(
     endpoint = f"repos/{repository}/pulls/{int(pr['number'])}/files"
     try:
         files = _fetch_paginated_items(run, endpoint)
-    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+    except (OSError, RuntimeError, TypeError, subprocess.TimeoutExpired):
         return paths, False
     complete_paths = [str(file.get("filename") or "") for file in files]
     if len(complete_paths) != changed_files or any(not path for path in complete_paths):
@@ -142,7 +141,7 @@ def _complete_comments(
     endpoint = f"repos/{repository}/issues/{int(pr['number'])}/comments"
     try:
         api_comments = _fetch_paginated_items(run, endpoint)
-    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+    except (OSError, RuntimeError, TypeError, subprocess.TimeoutExpired):
         return comments, False
     normalized = [
         {
@@ -240,11 +239,11 @@ def observe_pr(pr_number: int, *, run: Run | None = None) -> dict[str, Any]:
     ]
     before = _run_json(run, command)
     if not isinstance(before, dict):
-        raise RuntimeError("gh pr view returned invalid PR data")
+        raise TypeError("gh pr view returned invalid PR data")
     required_checks = _required_checks(run, pr_number)
     after = _run_json(run, command)
     if not isinstance(after, dict):
-        raise RuntimeError("gh pr view returned invalid PR data")
+        raise TypeError("gh pr view returned invalid PR data")
     stable = (
         before.get("headRefOid") == after.get("headRefOid")
         and before.get("state") == after.get("state")
@@ -269,9 +268,10 @@ def _latest_trusted_comment(pr: dict[str, Any]) -> str | None:
     for comment in pr.get("comments") or []:
         author = _author_login(comment.get("author"))
         body = comment.get("body") or ""
-        if is_trusted_comment_author(
-            author, _comment_association(comment)
-        ) and "<!-- renovate-eval-skill:" in body:
+        if (
+            is_trusted_comment_author(author, _comment_association(comment))
+            and "<!-- renovate-eval-skill:" in body
+        ):
             comments.append(comment)
     if not comments:
         return None
@@ -283,7 +283,7 @@ def _parse_evaluated_at(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -492,11 +492,7 @@ def build_inventory(
         )
         if not isinstance(prs, list):
             raise RuntimeError("gh pr list returned an invalid PR list")
-        prs = [
-            pr
-            for pr in prs
-            if _is_renovate_author(_author_login(pr.get("author")))
-        ]
+        prs = [pr for pr in prs if _is_renovate_author(_author_login(pr.get("author")))]
 
     def classify(pr: dict[str, Any]) -> dict[str, Any]:
         pr = _complete_bounded_collections(run, repository, pr)
@@ -621,11 +617,10 @@ def build_settled_inventory(
             record["head_sha"] != expected_head
             or final_observation["head_sha"] != expected_head
         )
-        base_changed = (
-            (record["base_ref"], record["base_sha"]) != expected_base
-            or (final_observation["base_ref"], final_observation["base_sha"])
-            != expected_base
-        )
+        base_changed = (record["base_ref"], record["base_sha"]) != expected_base or (
+            final_observation["base_ref"],
+            final_observation["base_sha"],
+        ) != expected_base
         if head_changed or base_changed:
             if progress is not None:
                 changed_identity = "head" if head_changed else "base"

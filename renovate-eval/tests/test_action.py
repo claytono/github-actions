@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ACTION_YAML = Path(__file__).resolve().parents[1] / "action.yml"
 
 
@@ -44,7 +43,7 @@ def test_action_installs_selected_provider_cli_but_expects_runner_gh():
     assert "codex_version:" in action
     assert "actions/setup-node" in action
     assert "npm install -g @anthropic-ai/claude-code" in action
-    assert '@openai/codex@' in action
+    assert "@openai/codex@" in action
     assert "Install GitHub CLI" not in action
     assert "sudo cp" not in action
     assert "required=(git gh python3)" in action
@@ -59,6 +58,6 @@ def test_action_waits_for_ci_by_default_and_forwards_override():
     assert "default: 'true'" in wait_input
     assert "description: Wait for CI before post-mode evaluation" in action
     assert "INPUT_WAIT_FOR_CI: ${{ inputs.wait_for_ci }}" in action
-    assert 'ARGS+=(--wait-for-ci)' in action
-    assert 'ARGS+=(--no-wait-for-ci)' in action
+    assert "ARGS+=(--wait-for-ci)" in action
+    assert "ARGS+=(--no-wait-for-ci)" in action
     assert "Unsupported wait_for_ci value" in action

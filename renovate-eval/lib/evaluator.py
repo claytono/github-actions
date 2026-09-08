@@ -10,7 +10,6 @@ from pathlib import Path
 from .agent_runner import run_agent
 from .common import find_repo_config_path
 
-
 INITIAL_SUPERPOWERS_RESEARCH_BLOCK = """
 ## Required Superpowers Usage
 

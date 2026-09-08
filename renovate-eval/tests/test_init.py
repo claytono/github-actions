@@ -8,7 +8,6 @@ import os
 import subprocess
 
 import pytest
-
 import renovate_eval
 
 
@@ -82,9 +81,7 @@ def test_init_prefers_user_scalar_filters(run_init):
     ]
 
 
-def test_init_uses_shared_config_and_omits_provider_rules(
-    run_init, capsys, tmp_dir
-):
+def test_init_uses_shared_config_and_omits_provider_rules(run_init, capsys, tmp_dir):
     repo_root = os.path.join(tmp_dir, "repo")
     os.makedirs(repo_root)
     with open(os.path.join(repo_root, ".renovate-eval.md"), "w") as f:
@@ -197,9 +194,7 @@ def test_init_rejects_malformed_gh_pr_list_args(run_init):
         ("", "ERROR: Failed to fetch PRs\n"),
     ],
 )
-def test_init_returns_gh_pr_list_error(
-    monkeypatch, capsys, gh_error, expected_error
-):
+def test_init_returns_gh_pr_list_error(monkeypatch, capsys, gh_error, expected_error):
     commands = []
 
     def fake_run(command, **kwargs):

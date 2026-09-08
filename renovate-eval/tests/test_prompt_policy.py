@@ -7,7 +7,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 PROMPTS_DIR = Path(__file__).parents[1] / "prompts"
 SKILL_PATH = Path(__file__).parents[1] / "SKILL.md"
 
@@ -65,7 +64,10 @@ def test_auditor_checks_omissions_without_penalizing_analysis():
 
     assert "Discovery completeness" in auditor
     assert "unknown as disabled or unconfigured" in auditor
-    assert "Treat evidence-only dismissals in the rendered report as FEEDBACK" not in auditor
+    assert (
+        "Treat evidence-only dismissals in the rendered report as FEEDBACK"
+        not in auditor
+    )
     assert "A section that explains how to enable a feature" not in auditor
 
 

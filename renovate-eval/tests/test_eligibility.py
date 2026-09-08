@@ -9,7 +9,6 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-
 SCRIPT = (
     Path(__file__).resolve().parents[2]
     / ".github/scripts/renovate-eval-check-eligibility.sh"
@@ -50,8 +49,7 @@ def _target_repo(tmp_path: Path) -> tuple[Path, str]:
     changed_lines = b"".join(
         line
         for line in diff.splitlines(keepends=True)
-        if line.startswith((b"+", b"-"))
-        and not line.startswith((b"+++", b"---"))
+        if line.startswith((b"+", b"-")) and not line.startswith((b"+++", b"---"))
     )
     return target, hashlib.sha256(changed_lines).hexdigest()
 

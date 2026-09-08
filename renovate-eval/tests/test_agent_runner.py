@@ -7,7 +7,6 @@ import os
 import subprocess
 
 import pytest
-
 from lib.agent_runner import (
     CODEX_MINIMAL_MODE_DISABLED_FEATURES,
     parse_codex_session_id,

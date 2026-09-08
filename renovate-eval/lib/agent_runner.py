@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 VALID_PROVIDERS = ("claude", "codex")
 CODEX_MINIMAL_MODE_DISABLED_FEATURES = (
     "shell_tool",
@@ -152,6 +151,7 @@ def _run_claude(
     try:
         result = subprocess.run(
             cmd,
+            check=False,
             input=prompt,
             capture_output=True,
             text=True,
@@ -254,6 +254,7 @@ def _run_codex(
     try:
         result = subprocess.run(
             cmd,
+            check=False,
             input=prompt,
             capture_output=True,
             text=True,

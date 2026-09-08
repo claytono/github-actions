@@ -5,7 +5,6 @@ from __future__ import annotations
 import subprocess
 
 import pytest
-
 import renovate_eval
 
 
@@ -24,9 +23,7 @@ def test_get_prev_eval_count_only_reads_trusted_author_comments(monkeypatch):
         return subprocess.CompletedProcess(
             cmd,
             0,
-            stdout=(
-                '<!-- renovate-eval-skill:{"version":4,"eval_count":2} -->\n'
-            ),
+            stdout=('<!-- renovate-eval-skill:{"version":4,"eval_count":2} -->\n'),
             stderr="",
         )
 
@@ -43,9 +40,7 @@ def test_post_comment_only_updates_trusted_author_comments(monkeypatch, tmp_dir)
     def mock_run(cmd, **kwargs):
         commands.append(cmd)
         if cmd[:3] == ["gh", "repo", "view"]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout="owner/repo\n", stderr=""
-            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="owner/repo\n", stderr="")
         if cmd[:2] == ["gh", "api"] and "issues/123/comments" in cmd[2]:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout='{"id":456,"body":"old"}\n', stderr=""
@@ -99,9 +94,7 @@ def test_post_comment_rejects_comment_search_failure_without_creating(
     def mock_run(cmd, **kwargs):
         commands.append(cmd)
         if cmd[:3] == ["gh", "repo", "view"]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout="owner/repo\n", stderr=""
-            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="owner/repo\n", stderr="")
         if cmd[:2] == ["gh", "api"] and "issues/123/comments" in cmd[2]:
             return subprocess.CompletedProcess(
                 cmd, 1, stdout="", stderr="comments API failed"
@@ -123,9 +116,7 @@ def test_post_comment_rejects_comment_search_failure_without_creating(
 def test_post_comment_wraps_comment_search_timeout(monkeypatch, tmp_dir):
     def mock_run(cmd, **kwargs):
         if cmd[:3] == ["gh", "repo", "view"]:
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout="owner/repo\n", stderr=""
-            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="owner/repo\n", stderr="")
         if cmd[:2] == ["gh", "api"] and "issues/123/comments" in cmd[2]:
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
         if cmd[:3] == ["gh", "pr", "comment"]:

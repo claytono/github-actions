@@ -6,7 +6,6 @@ import subprocess
 import time
 
 import pytest
-
 import renovate_eval
 
 

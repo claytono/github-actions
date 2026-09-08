@@ -72,9 +72,11 @@ class TestRenderReport:
 
         assert "## Further Follow-up" in result
         assert "API consumers — Unknown" in result
-        assert result.index("## Hazards & Risks") < result.index(
-            "## Further Follow-up"
-        ) < result.index("## Sources")
+        assert (
+            result.index("## Hazards & Risks")
+            < result.index("## Further Follow-up")
+            < result.index("## Sources")
+        )
 
     def test_multi_package_title(self, multi_package_eval_data):
         result = render_report(multi_package_eval_data)

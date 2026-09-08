@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
 
 import pytest
-
 from lib.common import (
     build_sentinel,
     compute_fingerprint,
@@ -78,6 +78,23 @@ class TestEmbedExtract:
 
     def test_extract_bad_base64(self):
         body = "<!-- renovate-eval-data\n!!invalid!!\n-->"
+        assert extract_eval_data(body) is None
+
+    def test_extract_recursion_error(self, monkeypatch):
+        body = embed_eval_data({"label": "renovate:safe"})
+
+        def raise_recursion_error(_payload):
+            raise RecursionError
+
+        monkeypatch.setattr(json, "loads", raise_recursion_error)
+
+        assert extract_eval_data(body) is None
+
+    def test_extract_oversized_integer(self):
+        decoded = '{"value":' + ("1" * 5000) + "}"
+        encoded = base64.b64encode(decoded.encode()).decode()
+        body = f"<!-- renovate-eval-data\n{encoded}\n-->"
+
         assert extract_eval_data(body) is None
 
     def test_roundtrip_complex(self, valid_eval_data):

@@ -70,11 +70,9 @@ def build_round_one_prompt(
 
     # Strip Output section from evaluator.md for the rubric
     evaluator_rubric = _strip_output_section(evaluator_md)
-    runtime_requirements = "\n\n".join(
-        (
-            INITIAL_SUPERPOWERS_RESEARCH_BLOCK.strip(),
-            TARGETED_REVISION_SUPERPOWERS_BLOCK.strip(),
-        )
+    runtime_requirements = (
+        f"{INITIAL_SUPERPOWERS_RESEARCH_BLOCK.strip()}\n\n"
+        f"{TARGETED_REVISION_SUPERPOWERS_BLOCK.strip()}"
     )
     repo_context_block = ""
     if repo_context:

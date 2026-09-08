@@ -28,6 +28,7 @@ def check_ci_once(
         cmd.extend(["--json", "name,state,bucket,workflow,link"])
     result = subprocess.run(
         cmd,
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -49,9 +50,7 @@ def check_ci_once(
         for check in checks
         if not (
             str(check.get("bucket") or "").lower() == "pending"
-            and current_run_pattern.search(
-                urlsplit(check.get("link") or "").path
-            )
+            and current_run_pattern.search(urlsplit(check.get("link") or "").path)
         )
     ]
     if not checks:
@@ -107,7 +106,7 @@ def wait_for_ci(pr_number: int | str, timeout: int = 300) -> tuple[str, int]:
             "15",
         ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
     output = result.stdout + result.stderr
 
     if result.returncode == 124:
@@ -127,6 +126,7 @@ def fetch_failed_logs(pr_number: int | str) -> str:
             "--json",
             "name,conclusion,detailsUrl",
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -158,6 +158,7 @@ def fetch_failed_logs(pr_number: int | str) -> str:
             lines.append("```")
             log_result = subprocess.run(
                 ["gh", "run", "view", run_id, "--log"],
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -191,9 +192,7 @@ def check_ci(
         lines.append(output)
     else:
         if exclude_run_id:
-            output, exit_code = check_ci_once(
-                pr_number, exclude_run_id=exclude_run_id
-            )
+            output, exit_code = check_ci_once(pr_number, exclude_run_id=exclude_run_id)
         else:
             output, exit_code = check_ci_once(pr_number)
         lines.append(output)

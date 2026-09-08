@@ -39,9 +39,12 @@ def fetch_metadata(pr_number: int | str) -> str:
                 "view",
                 str(pr_number),
                 "--json",
-                "number,title,author,state,url,baseRefName,headRefName,"
-                "additions,deletions,changedFiles",
+                (
+                    "number,title,author,state,url,baseRefName,headRefName,"
+                    "additions,deletions,changedFiles"
+                ),
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -59,7 +62,9 @@ def fetch_metadata(pr_number: int | str) -> str:
             lines.append(f"- Author: {data['author']['login']}")
             lines.append(f"- State: {data['state']}")
             lines.append(f"- URL: {data['url']}")
-            lines.append(f"- Branch: {data['headRefName']} \u2190 {data['baseRefName']}")
+            lines.append(
+                f"- Branch: {data['headRefName']} \u2190 {data['baseRefName']}"
+            )
             lines.append(
                 f"- Changes: +{data['additions']} -{data['deletions']} "
                 f"across {data['changedFiles']} files"
@@ -74,6 +79,7 @@ def fetch_body(pr_number: int | str) -> str:
     try:
         result = subprocess.run(
             ["gh", "pr", "view", str(pr_number), "--json", "body", "-q", ".body"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -111,6 +117,7 @@ def fetch_files(pr_number: int | str, diff_path: str) -> str:
     try:
         result = subprocess.run(
             ["gh", "pr", "view", str(pr_number), "--json", "files"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -157,6 +164,7 @@ def fetch_related_issues(pr_number: int | str, repo: str) -> str:
                 "-q",
                 ".closingIssuesReferences[].number",
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -188,6 +196,7 @@ def fetch_related_issues(pr_number: int | str, repo: str) -> str:
                         "--json",
                         "number,title,body,state",
                     ],
+                    check=False,
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -230,10 +239,13 @@ def fetch_related_issues(pr_number: int | str, repo: str) -> str:
                 "--paginate",
                 "--slurp",
                 "-q",
-                '[.[][] | select(.event == "cross-referenced") | .source.issue | '
-                '{number, title, state, type: (if .pull_request then "PR" else "Issue" end)}]'
-                " | unique_by(.number)",
+                (
+                    '[.[][] | select(.event == "cross-referenced") | .source.issue | '
+                    '{number, title, state, type: (if .pull_request then "PR" else "Issue" end)}]'
+                    " | unique_by(.number)"
+                ),
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=60,
@@ -282,6 +294,7 @@ def fetch_related_issues(pr_number: int | str, repo: str) -> str:
                             "-q",
                             '.body // "No body"',
                         ],
+                        check=False,
                         capture_output=True,
                         text=True,
                         timeout=30,
@@ -320,6 +333,7 @@ def detect_repo() -> str:
     try:
         result = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,

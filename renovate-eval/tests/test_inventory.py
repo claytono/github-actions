@@ -9,11 +9,9 @@ import subprocess
 from datetime import UTC, datetime
 
 import pytest
-
 import renovate_eval
 from lib import inventory as inventory_module
 from lib.inventory import build_inventory
-
 
 NOW = datetime(2026, 8, 26, 16, 0, tzinfo=UTC)
 DIFF = b"--- a/file\n+++ b/file\n-old\n+new\n"
@@ -319,12 +317,9 @@ def test_targeted_inventory_fetches_and_classifies_only_requested_pr():
 
     assert [pr["number"] for pr in result["prs"]] == [124]
     assert any(
-        command[:4] == ["gh", "pr", "view", "124"]
-        for command in fake_gh.commands
+        command[:4] == ["gh", "pr", "view", "124"] for command in fake_gh.commands
     )
-    assert not any(
-        command[:3] == ["gh", "pr", "list"] for command in fake_gh.commands
-    )
+    assert not any(command[:3] == ["gh", "pr", "list"] for command in fake_gh.commands)
     assert {
         int(command[3])
         for command in fake_gh.commands
@@ -407,6 +402,23 @@ def test_inventory_disqualifies_malformed_paginated_file_response():
     assert "changed paths are incomplete" in record["reasons"]
 
 
+def test_inventory_disqualifies_non_list_paginated_file_response():
+    graphql_files = [
+        {"path": f"kubernetes/example/{index}.yaml"} for index in range(100)
+    ]
+    malformed_api = subprocess.CompletedProcess(
+        ["gh", "api"], 0, stdout=json.dumps({"unexpected": "shape"}), stderr=""
+    )
+    selected = pr_data(changedFiles=101, files=graphql_files)
+    fake_gh = FakeGh([selected], api_files={123: malformed_api})
+
+    record = build_inventory(pr_number=123, now=NOW, run=fake_gh)["prs"][0]
+
+    assert record["files_complete"] is False
+    assert record["safety_qualified"] is False
+    assert "changed paths are incomplete" in record["reasons"]
+
+
 def test_inventory_fetches_all_comments_at_the_graphql_page_boundary():
     graphql_comments = [
         {
@@ -466,9 +478,29 @@ def test_inventory_treats_truncated_unavailable_comments_as_unknown():
     failed_api = subprocess.CompletedProcess(
         ["gh", "api"], 1, stdout="", stderr="rate limited"
     )
-    fake_gh = FakeGh(
-        [pr_data(comments=comments)], api_comments={123: failed_api}
+    fake_gh = FakeGh([pr_data(comments=comments)], api_comments={123: failed_api})
+
+    record = build_inventory(pr_number=123, now=NOW, run=fake_gh)["prs"][0]
+
+    assert record["evaluation"]["state"] == "unknown"
+    assert record["safety_qualified"] is False
+    assert "evaluation comments are incomplete" in record["reasons"]
+
+
+def test_inventory_treats_non_list_paginated_comments_as_unknown():
+    comments = [
+        {
+            "author": {"login": "github-actions"},
+            "authorAssociation": "NONE",
+            "body": sentinel(),
+            "createdAt": "2026-08-26T15:00:01Z",
+        }
+        for _ in range(100)
+    ]
+    malformed_api = subprocess.CompletedProcess(
+        ["gh", "api"], 0, stdout=json.dumps({"unexpected": "shape"}), stderr=""
     )
+    fake_gh = FakeGh([pr_data(comments=comments)], api_comments={123: malformed_api})
 
     record = build_inventory(pr_number=123, now=NOW, run=fake_gh)["prs"][0]
 
@@ -602,12 +634,12 @@ def test_targeted_inventory_retries_when_base_sha_changes_between_reads():
     assert result["prs"][0]["base_sha"] == new_base
     assert result["prs"][0]["safety_qualified"] is True
     assert messages == [
-        "PR #123 base changed while safety evidence was read; "
-        "discarding it and restarting"
+        (
+            "PR #123 base changed while safety evidence was read; "
+            "discarding it and restarting"
+        )
     ]
-    assert sum(
-        command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands
-    ) == 2
+    assert sum(command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands) == 2
 
 
 def test_targeted_inventory_retries_an_observation_that_mixes_heads():
@@ -643,9 +675,7 @@ def test_targeted_inventory_retries_an_observation_that_mixes_heads():
     assert messages == [
         "PR #123 changed while required checks were read; retrying in 30 seconds"
     ]
-    assert sum(
-        command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands
-    ) == 1
+    assert sum(command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands) == 1
 
 
 def test_targeted_inventory_waits_for_a_settled_head_before_fingerprinting():
@@ -717,9 +747,7 @@ def test_targeted_inventory_discards_classification_when_head_changes_mid_read()
     assert result["prs"][0]["head_sha"] == settled_head
     assert result["prs"][0]["safety_qualified"] is True
     assert sleeps == [30]
-    assert sum(
-        command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands
-    ) == 2
+    assert sum(command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands) == 2
 
 
 def test_targeted_inventory_times_out_as_unverified_when_checks_stay_unknown():
@@ -751,9 +779,7 @@ def test_targeted_inventory_times_out_as_unverified_when_checks_stay_unknown():
         )
 
     assert clock.sleeps == [30, 30]
-    assert not any(
-        command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands
-    )
+    assert not any(command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands)
 
 
 def test_targeted_inventory_backs_off_repeated_unknown_observations():
@@ -810,9 +836,7 @@ def test_targeted_inventory_retries_when_classification_sees_pending_checks():
 
     assert result["prs"][0]["safety_qualified"] is True
     assert sleeps == []
-    assert sum(
-        command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands
-    ) == 1
+    assert sum(command[:3] == ["gh", "pr", "diff"] for command in fake_gh.commands) == 1
 
 
 def test_targeted_inventory_retries_when_final_checks_change_to_failing():
@@ -928,8 +952,7 @@ def test_targeted_inventory_reports_why_it_is_waiting():
     )
 
     assert messages == [
-        "PR #123 head aaaaaaaaaaaa has pending required checks; "
-        "retrying in 30 seconds"
+        "PR #123 head aaaaaaaaaaaa has pending required checks; retrying in 30 seconds"
     ]
 
 

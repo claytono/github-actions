@@ -31,6 +31,7 @@ def get_repo_root() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=10,
@@ -228,7 +229,7 @@ def _run_evaluate(
                 log.warning("CI check timed out — continuing with unknown status")
             elif exit_code != 0:
                 log.warning("Failed to fetch CI status — continuing without it")
-        except Exception:
+        except Exception:  # noqa: BLE001 - CI collection is best effort.
             log.warning("CI check failed — continuing without it")
     else:
         try:
@@ -237,12 +238,12 @@ def _run_evaluate(
                 output_file=ci_status_file,
                 exclude_run_id=os.environ.get("GITHUB_RUN_ID"),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - CI collection is best effort.
             log.warning("CI check failed — continuing without it")
 
     # Evaluation loop
-    from lib.evaluator import run_evaluator
     from lib.auditor import run_auditor
+    from lib.evaluator import run_evaluator
 
     max_rounds = 3
     max_validation_retries = 3
@@ -297,7 +298,8 @@ def _run_evaluate(
                     else "",
                     timeout=agent_timeout,
                 )
-            except Exception as e:
+            # Providers expose different failure types; report all at this CLI boundary.
+            except Exception as e:  # noqa: BLE001
                 print(f"ERROR: Evaluator failed — {e}", file=sys.stderr)
                 break
             print(f"Evaluator completed in {_now() - eval_start}s")
@@ -416,7 +418,8 @@ def _run_evaluate(
                 yolo=yolo,
                 timeout=agent_timeout,
             )
-        except Exception as e:
+        # Providers expose different failure types; report all at this CLI boundary.
+        except Exception as e:  # noqa: BLE001
             print(f"ERROR: Auditor failed — {e}", file=sys.stderr)
             break
         print(f"Auditor completed in {_now() - audit_start}s")
@@ -663,6 +666,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Check automerge availability
     automerge_result = subprocess.run(
         ["gh", "api", "repos/{owner}/{repo}", "--jq", ".allow_auto_merge // false"],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -694,6 +698,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Fetch Renovate PRs
     pr_result = subprocess.run(
         pr_list_command,
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -777,18 +782,22 @@ def _copy_artifact(artifact_dir: str, src: str, dst: str) -> None:
         shutil.copy2(src_path, os.path.join(artifact_dir, dst))
 
 
-_TRUSTED_COMMENT_AUTHOR_JQ = "(" + " or ".join(
-    [
-        *(
-            f".user.login == {json.dumps(author)}"
-            for author in sorted(TRUSTED_COMMENT_AUTHORS)
-        ),
-        *(
-            f".author_association == {json.dumps(association)}"
-            for association in sorted(TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS)
-        ),
-    ]
-) + ")"
+_TRUSTED_COMMENT_AUTHOR_JQ = (
+    "("
+    + " or ".join(
+        [
+            *(
+                f".user.login == {json.dumps(author)}"
+                for author in sorted(TRUSTED_COMMENT_AUTHORS)
+            ),
+            *(
+                f".author_association == {json.dumps(association)}"
+                for association in sorted(TRUSTED_COMMENT_AUTHOR_ASSOCIATIONS)
+            ),
+        ]
+    )
+    + ")"
+)
 
 
 def _get_prev_eval_count(pr_number: int | str) -> int:
@@ -808,6 +817,7 @@ def _get_prev_eval_count(pr_number: int | str) -> int:
                 "| last | .body"
             ),
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
@@ -826,19 +836,16 @@ def _post_comment(pr_number: int | str, comment_body: str, artifact_dir: str) ->
     try:
         repo_result = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(
-            f"Failed to detect repo for comment posting: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to detect repo for comment posting: {exc}") from exc
     repo_nwo = repo_result.stdout.strip()
     if repo_result.returncode != 0 or not repo_nwo:
-        detail = (
-            repo_result.stderr.strip() or repo_result.stdout.strip() or "no output"
-        )
+        detail = repo_result.stderr.strip() or repo_result.stdout.strip() or "no output"
         raise RuntimeError(f"Failed to detect repo for comment posting: {detail}")
 
     # Find existing comment
@@ -856,6 +863,7 @@ def _post_comment(pr_number: int | str, comment_body: str, artifact_dir: str) ->
                     "| last | {id, body}"
                 ),
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -866,9 +874,7 @@ def _post_comment(pr_number: int | str, comment_body: str, artifact_dir: str) ->
         ) from exc
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "no output"
-        raise RuntimeError(
-            f"Failed to find existing renovate-eval comment: {detail}"
-        )
+        raise RuntimeError(f"Failed to find existing renovate-eval comment: {detail}")
     try:
         existing = json.loads(result.stdout) if result.stdout.strip() else {}
     except json.JSONDecodeError as exc:
@@ -930,6 +936,7 @@ def _manage_labels(pr_number: int | str, label: str) -> None:
     for name, color in LABEL_COLORS.items():
         subprocess.run(
             ["gh", "label", "create", name, "--color", color],
+            check=False,
             capture_output=True,
             timeout=10,
         )
@@ -946,6 +953,7 @@ def _manage_labels(pr_number: int | str, label: str) -> None:
             "--jq",
             '[.labels[].name] | join(",")',
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=10,

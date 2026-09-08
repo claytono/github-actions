@@ -7,11 +7,10 @@ import os
 import subprocess
 
 import pytest
-
 from lib.auditor import (
     _strip_output_section,
-    build_round_one_prompt,
     build_revision_prompt,
+    build_round_one_prompt,
     run_auditor,
 )
 
@@ -254,9 +253,7 @@ class TestRunAuditor:
 
         assert "legacy context" not in called_with["prompt"]
 
-    def test_empty_repo_root_does_not_read_context_from_cwd(
-        self, monkeypatch, tmp_dir
-    ):
+    def test_empty_repo_root_does_not_read_context_from_cwd(self, monkeypatch, tmp_dir):
         called_with = {}
 
         def mock_run_agent(**kwargs):

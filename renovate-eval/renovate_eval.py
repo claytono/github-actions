@@ -125,6 +125,13 @@ def build_settled_inventory(**kwargs):
     return _build_settled_inventory(**kwargs)
 
 
+def build_settling_inventory(**kwargs):
+    """Load the bounded complete-inventory settling implementation lazily."""
+    from lib.inventory import build_settling_inventory as _build_settling_inventory
+
+    return _build_settling_inventory(**kwargs)
+
+
 def observe_pr(pr_number: int):
     """Load the low-cost PR observation implementation lazily."""
     from lib.inventory import observe_pr as _observe_pr
@@ -143,13 +150,30 @@ def cmd_inventory(args: argparse.Namespace) -> None:
         try:
             inventory = build_settled_inventory(
                 **kwargs,
+                timeout_seconds=args.settle_timeout_seconds,
                 progress=lambda message: print(message, file=sys.stderr),
             )
         except TimeoutError as exc:
             raise SystemExit(str(exc)) from None
+    elif getattr(args, "settle_pending", False):
+        inventory = build_settling_inventory(
+            evaluation_max_age_seconds=args.evaluation_max_age_seconds,
+            timeout_seconds=args.settle_timeout_seconds,
+            progress=lambda message: print(message, file=sys.stderr),
+        )
     else:
         inventory = build_inventory(**kwargs)
-    print(json.dumps(inventory, indent=2))
+    output = json.dumps(inventory, indent=2)
+    output_path = getattr(args, "output", None)
+    if output_path:
+        try:
+            Path(output_path).write_text(f"{output}\n", encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(
+                f"Unable to write inventory JSON to {output_path}: {exc}"
+            ) from None
+    else:
+        print(output)
 
 
 def cmd_observe(args: argparse.Namespace) -> None:
@@ -1096,13 +1120,33 @@ def main() -> None:
         default=7 * 24 * 60 * 60,
         help="Maximum age of a qualifying evaluation (default: 7 days)",
     )
-    p_inventory.add_argument(
+    inventory_scope = p_inventory.add_mutually_exclusive_group()
+    inventory_scope.add_argument(
         "--pr",
         type=_positive_int,
         help=(
-            "Wait for stable required checks, then classify only this pull "
-            "request instead of the complete queue"
+            "Wait for stable required checks and mergeability, then classify "
+            "only this pull request instead of the complete queue"
         ),
+    )
+    inventory_scope.add_argument(
+        "--settle-pending",
+        action="store_true",
+        help=(
+            "Wait under one shared deadline for potentially safe pull requests "
+            "with unresolved required checks or mergeability"
+        ),
+    )
+    p_inventory.add_argument(
+        "--settle-timeout-seconds",
+        type=_positive_int,
+        default=30 * 60,
+        help="Settling deadline in seconds (default: 1800)",
+    )
+    p_inventory.add_argument(
+        "--output",
+        metavar="PATH",
+        help="Write inventory JSON to PATH instead of stdout",
     )
 
     # observe

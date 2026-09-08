@@ -125,7 +125,14 @@ python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" status --pr 1234
 # Machine-readable inventory of every open Renovate PR
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory
 
-# Wait for stable CI, then classify one PR without reloading the queue
+# Write the inventory to a file instead of stdout
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory --output inventory.json
+
+# Give potentially safe PRs one shared 30-minute settling window
+python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory \
+  --settle-pending --settle-timeout-seconds 1800
+
+# Wait for stable CI and mergeability, then classify one PR without reloading the queue
 python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" inventory --pr 1234
 
 # Low-cost diagnostic snapshot of one PR's head and required checks
@@ -142,9 +149,9 @@ python3 "$RENOVATE_EVAL_DIR/renovate_eval.py" render path/to/eval-data.json --ci
 Without `--pr`, it returns every open PR from the Renovate GitHub App, including
 active auto-merges as an informational queue snapshot. Callers must use the
 targeted form as the authoritative pre-write gate. With `--pr`, it waits up to
-30 minutes for required checks to settle, follows replacement heads created by
-Renovate or CI, and classifies only after the same terminal head is observed
-before and after the safety read.
+30 minutes for required checks and GitHub's mergeability calculation to settle,
+follows replacement heads created by Renovate or CI, and classifies only after
+the same terminal head is observed before and after the safety read.
 The target branch name and revision must remain stable across the same read. It
 never fingerprints a merely pending head. Both forms include exact head/base
 metadata, changed paths, labels, required-check state, mergeability, trusted
@@ -158,7 +165,18 @@ GraphQL changed-path or comment collections reach their response limits; if a
 complete safety-relevant collection cannot be confirmed, the PR does not
 qualify. Use
 `--evaluation-max-age-seconds` to change the freshness window for a caller with
-a different policy.
+a different policy. Pass `--output PATH` to write the same JSON to a file instead
+of stdout; the destination's parent directory must already exist. Pass
+`--settle-pending` to wait for potentially safe PRs whose required checks or
+mergeability are unresolved. Set the deadline for either targeted or batch
+settling with `--settle-timeout-seconds` (1800 seconds by default). Batch
+inventory still returns when that deadline expires: unresolved records have
+`settling_timed_out: true`, and the top-level `settling` object reports
+candidate, settled, and timed-out counts. During settling, replacement heads
+and changes observed while safety evidence is read are retried rather than
+mixed into one classification. Timed-out records remain safety-unqualified.
+Individual GitHub subprocess calls also have finite timeouts, so a GitHub API
+failure cannot create an unbounded wait.
 
 `observe --pr` is the low-cost diagnostic boundary used internally by targeted
 inventory. It returns only the PR number, open/closed state, current head SHA,

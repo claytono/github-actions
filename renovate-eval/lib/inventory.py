@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .common import (
+    SENTINEL_VERSION,
     VALID_LABELS,
     compute_fingerprint_bytes,
     is_trusted_comment_author,
@@ -517,6 +518,220 @@ def build_inventory(
     }
 
 
+def _is_settling_candidate(record: dict[str, Any]) -> bool:
+    """Return whether settling CI or mergeability could qualify this record."""
+    labels = set(record.get("labels") or [])
+    evaluation = record.get("evaluation") or {}
+    checks_state = (record.get("required_checks") or {}).get("state")
+    mergeability_reasons = {
+        "PR is not mergeable (UNKNOWN)",
+        "merge state is not clean (UNKNOWN)",
+    }
+    reasons = set(record.get("reasons") or [])
+    mergeability_unresolved = (
+        checks_state == "passing"
+        and (
+            record.get("mergeable") == "UNKNOWN"
+            or record.get("merge_state_status") == "UNKNOWN"
+        )
+        and bool(reasons)
+        and reasons <= mergeability_reasons
+    )
+    return (
+        record.get("state") == "OPEN"
+        and not record.get("is_draft")
+        and record.get("base_ref") == "main"
+        and _is_renovate_author(str(record.get("author") or ""))
+        and bool(record.get("files_complete"))
+        and {"renovate", "renovate:evaluated", "renovate:safe"} <= labels
+        and not DISQUALIFYING_LABELS & labels
+        and evaluation.get("label") == "renovate:safe"
+        and evaluation.get("version") == SENTINEL_VERSION
+        and bool(evaluation.get("fingerprint"))
+        and bool(evaluation.get("evaluated_at"))
+        and (checks_state in {"pending", "unknown"} or mergeability_unresolved)
+    )
+
+
+def build_settling_inventory(
+    *,
+    evaluation_max_age_seconds: int = DEFAULT_EVALUATION_MAX_AGE_SECONDS,
+    now: datetime | None = None,
+    run: Run | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    poll_interval_seconds: float = 30,
+    timeout_seconds: float = 30 * 60,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Settle potentially safe PRs under one deadline, then return the queue."""
+    if poll_interval_seconds <= 0:
+        raise ValueError("poll_interval_seconds must be positive")
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+
+    inventory = build_inventory(
+        pr_number=None,
+        evaluation_max_age_seconds=evaluation_max_age_seconds,
+        now=now,
+        run=run,
+        fingerprint_only_terminal_checks=True,
+    )
+    records = inventory["prs"]
+    candidates = {
+        record["number"]: index
+        for index, record in enumerate(records)
+        if _is_settling_candidate(record)
+    }
+    qualified_non_candidates = {
+        record["number"]: index
+        for index, record in enumerate(records)
+        if record["safety_qualified"] and record["number"] not in candidates
+    }
+    pending = set(candidates)
+    deadline = monotonic() + timeout_seconds
+
+    for record in records:
+        record["settling_timed_out"] = False
+
+    while pending and monotonic() < deadline:
+        numbers = sorted(pending)
+        with ThreadPoolExecutor(max_workers=min(8, len(numbers))) as executor:
+            observations = dict(
+                zip(
+                    numbers,
+                    executor.map(lambda number: observe_pr(number, run=run), numbers),
+                )
+            )
+
+        terminal = [
+            number
+            for number, observation in observations.items()
+            if observation["stable"]
+            and (
+                observation["state"] != "OPEN"
+                or observation["required_checks"]["state"] not in {"pending", "unknown"}
+            )
+        ]
+
+        def classify_settled_pr(
+            number: int,
+            current_observations: dict[int, dict[str, Any]] = observations,
+        ) -> tuple[int, dict[str, Any] | None]:
+            observation = current_observations[number]
+            targeted = build_inventory(
+                pr_number=number,
+                evaluation_max_age_seconds=evaluation_max_age_seconds,
+                now=now,
+                run=run,
+                fingerprint_only_terminal_checks=True,
+            )
+            final_observation = observe_pr(number, run=run)
+            record = targeted["prs"][0]
+            identity = (
+                record["state"],
+                record["base_ref"],
+                record["base_sha"],
+                record["head_sha"],
+                record["required_checks"]["state"],
+            )
+            final_identity = (
+                final_observation["state"],
+                final_observation["base_ref"],
+                final_observation["base_sha"],
+                final_observation["head_sha"],
+                final_observation["required_checks"]["state"],
+            )
+            observed_identity = (
+                observation["state"],
+                observation["base_ref"],
+                observation["base_sha"],
+                observation["head_sha"],
+                observation["required_checks"]["state"],
+            )
+            if (
+                not final_observation["stable"]
+                or identity != observed_identity
+                or identity != final_identity
+                or (
+                    record["state"] == "OPEN"
+                    and record["required_checks"]["state"] in {"pending", "unknown"}
+                )
+                or _is_settling_candidate(record)
+            ):
+                return number, None
+            record["settling_timed_out"] = False
+            return number, record
+
+        if terminal:
+            with ThreadPoolExecutor(max_workers=min(8, len(terminal))) as executor:
+                for number, record in executor.map(classify_settled_pr, terminal):
+                    if record is not None:
+                        records[candidates[number]] = record
+                        pending.remove(number)
+
+        if pending:
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                if progress is not None:
+                    progress(
+                        f"Waiting for {len(pending)} potentially safe Renovate "
+                        "PR(s) to settle required checks and mergeability"
+                    )
+                sleep(min(poll_interval_seconds, remaining))
+
+    def refresh_timed_out(number: int) -> tuple[int, dict[str, Any]]:
+        refreshed = build_inventory(
+            pr_number=number,
+            evaluation_max_age_seconds=evaluation_max_age_seconds,
+            now=now,
+            run=run,
+            fingerprint_only_terminal_checks=True,
+        )["prs"][0]
+        refreshed["safety_qualified"] = False
+        reasons = list(refreshed.get("reasons") or [])
+        if "settling timed out" not in reasons:
+            reasons.append("settling timed out")
+        refreshed["reasons"] = reasons
+        refreshed["settling_timed_out"] = True
+        return number, refreshed
+
+    if pending:
+        numbers = sorted(pending)
+        with ThreadPoolExecutor(max_workers=min(8, len(numbers))) as executor:
+            for number, record in executor.map(refresh_timed_out, numbers):
+                records[candidates[number]] = record
+
+    def refresh_qualified_non_candidate(number: int) -> tuple[int, dict[str, Any]]:
+        refreshed = build_inventory(
+            pr_number=number,
+            evaluation_max_age_seconds=evaluation_max_age_seconds,
+            now=now,
+            run=run,
+            fingerprint_only_terminal_checks=True,
+        )["prs"][0]
+        refreshed["settling_timed_out"] = False
+        return number, refreshed
+
+    if candidates and qualified_non_candidates:
+        numbers = sorted(qualified_non_candidates)
+        with ThreadPoolExecutor(max_workers=min(8, len(numbers))) as executor:
+            for number, record in executor.map(
+                refresh_qualified_non_candidate, numbers
+            ):
+                records[qualified_non_candidates[number]] = record
+
+    candidate_count = len(candidates)
+    timed_out_count = len(pending)
+    inventory["settling"] = {
+        "timeout_seconds": timeout_seconds,
+        "candidate_count": candidate_count,
+        "settled_count": candidate_count - timed_out_count,
+        "timed_out_count": timed_out_count,
+    }
+    return inventory
+
+
 def build_settled_inventory(
     *,
     pr_number: int,
@@ -529,7 +744,7 @@ def build_settled_inventory(
     timeout_seconds: float = 30 * 60,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Wait for one PR's checks and classify only a stable head and base."""
+    """Wait for one PR's checks and mergeability on a stable head and base."""
     if pr_number <= 0:
         raise ValueError("PR number must be positive")
     if poll_interval_seconds <= 0:
@@ -654,5 +869,16 @@ def build_settled_inventory(
         if wait_for_observation(classification_observation):
             continue
         if wait_for_observation(final_observation):
+            continue
+        if (
+            record["mergeable"] == "UNKNOWN"
+            or record["merge_state_status"] == "UNKNOWN"
+        ):
+            if progress is not None:
+                progress(
+                    f"PR #{pr_number} head {record['head_sha'][:12]} has unknown "
+                    f"mergeability; retrying in {poll_interval_seconds:g} seconds"
+                )
+            wait(poll_interval_seconds)
             continue
         return inventory

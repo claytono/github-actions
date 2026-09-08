@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from datetime import UTC, datetime
 
@@ -811,6 +812,78 @@ def test_targeted_inventory_backs_off_repeated_unknown_observations():
     assert clock.sleeps == [30, 60]
 
 
+def test_targeted_inventory_waits_for_github_to_calculate_mergeability():
+    passing = [{"name": "Lint", "bucket": "pass", "state": "SUCCESS"}]
+    head = "a" * 40
+    fake_gh = SettlingGh(
+        observations=[
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+        ],
+        classifications=[
+            pr_data(
+                headRefOid=head,
+                mergeable="UNKNOWN",
+                mergeStateStatus="UNKNOWN",
+            ),
+            pr_data(headRefOid=head),
+        ],
+    )
+    sleeps = []
+    messages = []
+
+    result = inventory_module.build_settled_inventory(
+        pr_number=123,
+        now=NOW,
+        run=fake_gh,
+        sleep=sleeps.append,
+        progress=messages.append,
+    )
+
+    assert result["prs"][0]["safety_qualified"] is True
+    assert sleeps == [30]
+    assert messages == [
+        ("PR #123 head aaaaaaaaaaaa has unknown mergeability; retrying in 30 seconds")
+    ]
+
+
+def test_targeted_inventory_times_out_when_mergeability_stays_unknown():
+    passing = [{"name": "Lint", "bucket": "pass", "state": "SUCCESS"}]
+    head = "a" * 40
+    unknown = pr_data(
+        headRefOid=head,
+        mergeable="UNKNOWN",
+        mergeStateStatus="UNKNOWN",
+    )
+    fake_gh = SettlingGh(
+        observations=[
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing},
+        ],
+        classifications=[unknown, unknown],
+    )
+    clock = FakeClock()
+
+    with pytest.raises(
+        TimeoutError,
+        match="PR #123 did not settle within 60 seconds; safety is unverified",
+    ):
+        inventory_module.build_settled_inventory(
+            pr_number=123,
+            now=NOW,
+            run=fake_gh,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            timeout_seconds=60,
+        )
+
+    assert clock.sleeps == [30, 30]
+
+
 def test_targeted_inventory_retries_when_classification_sees_pending_checks():
     pending = [{"name": "Render Helm Charts", "bucket": "pending", "state": "PENDING"}]
     passing = [{"name": "Render Helm Charts", "bucket": "pass", "state": "SUCCESS"}]
@@ -865,6 +938,527 @@ def test_targeted_inventory_retries_when_final_checks_change_to_failing():
     assert record["required_checks"]["state"] == "failing"
     assert record["safety_qualified"] is False
     assert "required checks are failing" in record["reasons"]
+
+
+def test_complete_inventory_settles_candidates_with_one_shared_deadline(monkeypatch):
+    settled = {
+        "number": 123,
+        "state": "OPEN",
+        "base_ref": "main",
+        "base_sha": "0" * 40,
+        "head_sha": "a" * 40,
+        "required_checks": {"state": "passing"},
+        "evaluation": {"state": "current", "label": "renovate:safe"},
+        "safety_qualified": True,
+        "reasons": [],
+    }
+    hung = {
+        "number": 124,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "pending"},
+        "evaluation": {
+            "state": "unknown",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": [
+            "evaluation is unknown",
+            "required checks are pending",
+            "merge state is not clean (BLOCKED)",
+        ],
+    }
+    initial = {
+        "repository": "claytono/infra",
+        "evaluation_max_age_seconds": 60,
+        "prs": [dict(hung, number=123), hung],
+    }
+    clock = FakeClock()
+    calls = []
+
+    def fake_build_inventory(**kwargs):
+        calls.append(kwargs)
+        if kwargs["pr_number"] is None:
+            return initial
+        if kwargs["pr_number"] == 124:
+            return {
+                "repository": "claytono/infra",
+                "evaluation_max_age_seconds": 60,
+                "prs": [
+                    {
+                        **hung,
+                        "base_sha": "0" * 40,
+                        "head_sha": "b" * 40,
+                    }
+                ],
+            }
+        assert kwargs["pr_number"] == 123
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [settled],
+        }
+
+    def fake_observe(pr_number, *, run=None):
+        del run
+        if pr_number == 123:
+            return {
+                "state": "OPEN",
+                "base_ref": "main",
+                "base_sha": "0" * 40,
+                "head_sha": "a" * 40,
+                "stable": True,
+                "required_checks": {"state": "passing"},
+            }
+        return {
+            "state": "OPEN",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": "b" * 40,
+            "stable": True,
+            "required_checks": {"state": "pending"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=60,
+    )
+
+    assert result["settling"] == {
+        "timeout_seconds": 60,
+        "candidate_count": 2,
+        "settled_count": 1,
+        "timed_out_count": 1,
+    }
+    assert result["prs"][0] == {**settled, "settling_timed_out": False}
+    assert result["prs"][1]["settling_timed_out"] is True
+    assert result["prs"][1]["safety_qualified"] is False
+    assert clock.sleeps == [30, 30]
+    assert calls[0] == {
+        "pr_number": None,
+        "evaluation_max_age_seconds": 60,
+        "now": None,
+        "run": None,
+        "fingerprint_only_terminal_checks": True,
+    }
+
+
+def test_complete_inventory_refreshes_qualified_prs_after_waiting(monkeypatch):
+    pending = {
+        "number": 123,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "pending"},
+        "evaluation": {
+            "state": "unknown",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": ["required checks are pending"],
+    }
+    qualified = {
+        **pending,
+        "number": 124,
+        "head_sha": "a" * 40,
+        "required_checks": {"state": "passing"},
+        "evaluation": {
+            **pending["evaluation"],
+            "state": "current",
+            "current_fingerprint": FINGERPRINT,
+        },
+        "safety_qualified": True,
+        "reasons": [],
+    }
+    rebased = {
+        **qualified,
+        "head_sha": "b" * 40,
+        "required_checks": {"state": "pending"},
+        "evaluation": {
+            **qualified["evaluation"],
+            "state": "stale",
+            "current_fingerprint": None,
+        },
+        "safety_qualified": False,
+        "reasons": ["required checks are pending"],
+    }
+    initial = {
+        "repository": "claytono/infra",
+        "evaluation_max_age_seconds": 60,
+        "prs": [pending, qualified],
+    }
+    clock = FakeClock()
+
+    def fake_build_inventory(**kwargs):
+        if kwargs["pr_number"] is None:
+            return initial
+        record = pending if kwargs["pr_number"] == 123 else rebased
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [dict(record)],
+        }
+
+    def fake_observe(_pr_number, *, run=None):
+        del run
+        return {
+            "state": "OPEN",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": "a" * 40,
+            "stable": True,
+            "required_checks": {"state": "pending"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=30,
+    )
+
+    assert result["prs"][1] == {**rebased, "settling_timed_out": False}
+
+
+def test_complete_inventory_settles_closed_pr_with_pending_checks(monkeypatch):
+    pending = {
+        "number": 123,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "base_sha": "0" * 40,
+        "head_sha": "a" * 40,
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "pending"},
+        "mergeable": "UNKNOWN",
+        "merge_state_status": "BLOCKED",
+        "evaluation": {
+            "state": "unknown",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "current_fingerprint": None,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": [
+            "evaluation is unknown",
+            "required checks are pending",
+            "PR is not mergeable (UNKNOWN)",
+            "merge state is not clean (BLOCKED)",
+        ],
+    }
+    closed = {
+        **pending,
+        "state": "CLOSED",
+        "reasons": [
+            "PR is not open",
+            *pending["reasons"],
+        ],
+    }
+    clock = FakeClock()
+
+    def fake_build_inventory(**kwargs):
+        record = pending if kwargs["pr_number"] is None else closed
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [dict(record)],
+        }
+
+    def fake_observe(_pr_number, *, run=None):
+        del run
+        return {
+            "state": "CLOSED",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": "a" * 40,
+            "stable": True,
+            "required_checks": {"state": "pending"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=60,
+    )
+
+    assert result["prs"][0] == {**closed, "settling_timed_out": False}
+    assert result["settling"] == {
+        "timeout_seconds": 60,
+        "candidate_count": 1,
+        "settled_count": 1,
+        "timed_out_count": 0,
+    }
+    assert clock.sleeps == []
+
+
+def test_complete_inventory_waits_for_github_to_calculate_mergeability(monkeypatch):
+    unresolved = {
+        "number": 123,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "base_sha": "0" * 40,
+        "head_sha": "a" * 40,
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "passing"},
+        "mergeable": "UNKNOWN",
+        "merge_state_status": "UNKNOWN",
+        "evaluation": {
+            "state": "current",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "current_fingerprint": FINGERPRINT,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": [
+            "PR is not mergeable (UNKNOWN)",
+            "merge state is not clean (UNKNOWN)",
+        ],
+    }
+    settled = {
+        **unresolved,
+        "mergeable": "MERGEABLE",
+        "merge_state_status": "CLEAN",
+        "safety_qualified": True,
+        "reasons": [],
+    }
+    classifications = iter([unresolved, settled])
+    clock = FakeClock()
+
+    def fake_build_inventory(**kwargs):
+        record = unresolved if kwargs["pr_number"] is None else next(classifications)
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [dict(record)],
+        }
+
+    def fake_observe(_pr_number, *, run=None):
+        del run
+        return {
+            "state": "OPEN",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": "a" * 40,
+            "stable": True,
+            "required_checks": {"state": "passing"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=60,
+    )
+
+    assert result["settling"] == {
+        "timeout_seconds": 60,
+        "candidate_count": 1,
+        "settled_count": 1,
+        "timed_out_count": 0,
+    }
+    assert result["prs"][0] == {**settled, "settling_timed_out": False}
+    assert clock.sleeps == [30]
+
+
+def test_complete_inventory_times_out_when_mergeability_stays_unknown(monkeypatch):
+    unresolved = {
+        "number": 123,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "base_sha": "0" * 40,
+        "head_sha": "a" * 40,
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "passing"},
+        "mergeable": "UNKNOWN",
+        "merge_state_status": "UNKNOWN",
+        "evaluation": {
+            "state": "current",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "current_fingerprint": FINGERPRINT,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": [
+            "PR is not mergeable (UNKNOWN)",
+            "merge state is not clean (UNKNOWN)",
+        ],
+    }
+    clock = FakeClock()
+
+    def fake_build_inventory(**kwargs):
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [dict(unresolved)],
+        }
+
+    def fake_observe(_pr_number, *, run=None):
+        del run
+        return {
+            "state": "OPEN",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": "a" * 40,
+            "stable": True,
+            "required_checks": {"state": "passing"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=60,
+    )
+
+    assert result["settling"] == {
+        "timeout_seconds": 60,
+        "candidate_count": 1,
+        "settled_count": 0,
+        "timed_out_count": 1,
+    }
+    assert result["prs"][0] == {
+        **unresolved,
+        "reasons": [*unresolved["reasons"], "settling timed out"],
+        "settling_timed_out": True,
+    }
+    assert clock.sleeps == [30, 30]
+
+
+def test_complete_inventory_refreshes_rebased_candidate_after_timeout(monkeypatch):
+    original_head = "a" * 40
+    replacement_head = "b" * 40
+    pending = {
+        "number": 123,
+        "state": "OPEN",
+        "is_draft": False,
+        "base_ref": "main",
+        "base_sha": "0" * 40,
+        "head_sha": original_head,
+        "author": "renovate[bot]",
+        "files_complete": True,
+        "labels": ["renovate", "renovate:evaluated", "renovate:safe"],
+        "required_checks": {"state": "pending"},
+        "mergeable": "UNKNOWN",
+        "merge_state_status": "BLOCKED",
+        "evaluation": {
+            "state": "unknown",
+            "label": "renovate:safe",
+            "version": 4,
+            "fingerprint": FINGERPRINT,
+            "current_fingerprint": None,
+            "evaluated_at": "2026-08-26T15:00:00Z",
+        },
+        "safety_qualified": False,
+        "reasons": [
+            "evaluation is unknown",
+            "required checks are pending",
+            "PR is not mergeable (UNKNOWN)",
+            "merge state is not clean (BLOCKED)",
+        ],
+    }
+    refreshed = {
+        **pending,
+        "head_sha": replacement_head,
+        "required_checks": {"state": "passing"},
+        "mergeable": "MERGEABLE",
+        "merge_state_status": "CLEAN",
+        "evaluation": {
+            **pending["evaluation"],
+            "state": "current",
+            "current_fingerprint": FINGERPRINT,
+        },
+        "safety_qualified": True,
+        "reasons": [],
+    }
+    clock = FakeClock()
+
+    def fake_build_inventory(**kwargs):
+        record = pending if kwargs["pr_number"] is None else refreshed
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [dict(record)],
+        }
+
+    def fake_observe(_pr_number, *, run=None):
+        del run
+        return {
+            "state": "OPEN",
+            "base_ref": "main",
+            "base_sha": "0" * 40,
+            "head_sha": replacement_head,
+            "stable": True,
+            "required_checks": {"state": "pending"},
+        }
+
+    monkeypatch.setattr(inventory_module, "build_inventory", fake_build_inventory)
+    monkeypatch.setattr(inventory_module, "observe_pr", fake_observe)
+
+    result = inventory_module.build_settling_inventory(
+        evaluation_max_age_seconds=60,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        poll_interval_seconds=30,
+        timeout_seconds=60,
+    )
+
+    assert result["prs"][0] == {
+        **refreshed,
+        "safety_qualified": False,
+        "reasons": ["settling timed out"],
+        "settling_timed_out": True,
+    }
+    assert result["settling"]["timed_out_count"] == 1
 
 
 def test_targeted_inventory_retries_when_final_pr_state_changes_to_closed():
@@ -1284,6 +1878,153 @@ def test_cmd_inventory_prints_json(monkeypatch, capsys):
     assert received == {"evaluation_max_age_seconds": 60, "pr_number": None}
 
 
+def test_cmd_complete_inventory_uses_bounded_settling(monkeypatch, capsys):
+    expected = {
+        "repository": "claytono/infra",
+        "evaluation_max_age_seconds": 60,
+        "settling": {
+            "timeout_seconds": 600,
+            "candidate_count": 2,
+            "settled_count": 1,
+            "timed_out_count": 1,
+        },
+        "prs": [],
+    }
+    received = {}
+    monkeypatch.setattr(renovate_eval, "require_inventory_prerequisites", lambda: None)
+    monkeypatch.setattr(
+        renovate_eval,
+        "build_inventory",
+        lambda **_kwargs: pytest.fail("settling CLI bypassed batch settling"),
+    )
+
+    def fake_build_settling_inventory(**kwargs):
+        kwargs.pop("progress")("waiting for stable CI")
+        received.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(
+        renovate_eval,
+        "build_settling_inventory",
+        fake_build_settling_inventory,
+        raising=False,
+    )
+
+    renovate_eval.cmd_inventory(
+        argparse.Namespace(
+            evaluation_max_age_seconds=60,
+            pr=None,
+            settle_pending=True,
+            settle_timeout_seconds=600,
+            output=None,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == expected
+    assert captured.err == "waiting for stable CI\n"
+    assert received == {
+        "evaluation_max_age_seconds": 60,
+        "timeout_seconds": 600,
+    }
+
+
+def test_inventory_cli_defaults_to_thirty_minute_settling(monkeypatch, capsys):
+    received = {}
+    monkeypatch.setattr(renovate_eval, "require_inventory_prerequisites", lambda: None)
+
+    def fake_build_settling_inventory(**kwargs):
+        kwargs.pop("progress")
+        received.update(kwargs)
+        return {
+            "repository": "claytono/infra",
+            "evaluation_max_age_seconds": 60,
+            "prs": [],
+        }
+
+    monkeypatch.setattr(
+        renovate_eval,
+        "build_settling_inventory",
+        fake_build_settling_inventory,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "renovate_eval.py",
+            "inventory",
+            "--evaluation-max-age-seconds",
+            "60",
+            "--settle-pending",
+        ],
+    )
+
+    renovate_eval.main()
+
+    assert json.loads(capsys.readouterr().out)["prs"] == []
+    assert received == {
+        "evaluation_max_age_seconds": 60,
+        "timeout_seconds": 30 * 60,
+    }
+
+
+def test_inventory_cli_writes_json_to_output_file(monkeypatch, capsys, tmp_path):
+    expected = {
+        "repository": "claytono/infra",
+        "evaluation_max_age_seconds": 60,
+        "prs": [],
+    }
+    output_path = tmp_path / "inventory.json"
+    monkeypatch.setattr(renovate_eval, "require_inventory_prerequisites", lambda: None)
+    monkeypatch.setattr(
+        renovate_eval,
+        "build_inventory",
+        lambda **_kwargs: expected,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "renovate_eval.py",
+            "inventory",
+            "--evaluation-max-age-seconds",
+            "60",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    renovate_eval.main()
+
+    assert json.loads(output_path.read_text()) == expected
+    assert capsys.readouterr().out == ""
+
+
+def test_cmd_inventory_reports_output_write_failure(monkeypatch, tmp_path):
+    expected = {
+        "repository": "claytono/infra",
+        "evaluation_max_age_seconds": 60,
+        "prs": [],
+    }
+    output_path = tmp_path / "missing" / "inventory.json"
+    monkeypatch.setattr(renovate_eval, "require_inventory_prerequisites", lambda: None)
+    monkeypatch.setattr(
+        renovate_eval,
+        "build_inventory",
+        lambda **_kwargs: expected,
+    )
+
+    with pytest.raises(
+        SystemExit,
+        match=f"Unable to write inventory JSON to {re.escape(str(output_path))}",
+    ):
+        renovate_eval.cmd_inventory(
+            argparse.Namespace(
+                evaluation_max_age_seconds=60,
+                pr=None,
+                output=str(output_path),
+            )
+        )
+
+
 def test_cmd_targeted_inventory_uses_settled_classification(monkeypatch, capsys):
     expected = {
         "repository": "claytono/infra",
@@ -1311,13 +2052,21 @@ def test_cmd_targeted_inventory_uses_settled_classification(monkeypatch, capsys)
     )
 
     renovate_eval.cmd_inventory(
-        argparse.Namespace(evaluation_max_age_seconds=60, pr=123)
+        argparse.Namespace(
+            evaluation_max_age_seconds=60,
+            pr=123,
+            settle_timeout_seconds=90,
+        )
     )
 
     captured = capsys.readouterr()
     assert json.loads(captured.out) == expected
     assert captured.err == "waiting for stable CI\n"
-    assert received == {"evaluation_max_age_seconds": 60, "pr_number": 123}
+    assert received == {
+        "evaluation_max_age_seconds": 60,
+        "pr_number": 123,
+        "timeout_seconds": 90,
+    }
 
 
 def test_cmd_targeted_inventory_reports_unverified_timeout_without_traceback(
@@ -1337,7 +2086,11 @@ def test_cmd_targeted_inventory_reports_unverified_timeout_without_traceback(
         match="PR #123 did not settle within 1800 seconds; safety is unverified",
     ):
         renovate_eval.cmd_inventory(
-            argparse.Namespace(evaluation_max_age_seconds=60, pr=123)
+            argparse.Namespace(
+                evaluation_max_age_seconds=60,
+                pr=123,
+                settle_timeout_seconds=1800,
+            )
         )
 
 

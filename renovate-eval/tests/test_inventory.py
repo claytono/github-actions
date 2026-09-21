@@ -203,6 +203,8 @@ class SettlingGh(FakeGh):
         if command[:3] == ["gh", "pr", "checks"] and self.classification_checks:
             checks = self.classification_checks.pop(0)
             self.commands.append(command)
+            if isinstance(checks, subprocess.CompletedProcess):
+                return checks
             return subprocess.CompletedProcess(
                 command, 0, stdout=json.dumps(checks), stderr=""
             )
@@ -845,7 +847,9 @@ def test_targeted_inventory_waits_for_github_to_calculate_mergeability():
     assert result["prs"][0]["safety_qualified"] is True
     assert sleeps == [30]
     assert messages == [
-        ("PR #123 head aaaaaaaaaaaa has unknown mergeability; retrying in 30 seconds")
+        (
+            "PR #123 OPEN head aaaaaaaaaaaa has unknown mergeability; retrying in 30 seconds"
+        )
     ]
 
 
@@ -1461,34 +1465,120 @@ def test_complete_inventory_refreshes_rebased_candidate_after_timeout(monkeypatc
     assert result["settling"]["timed_out_count"] == 1
 
 
-def test_targeted_inventory_retries_when_final_pr_state_changes_to_closed():
-    passing = [{"name": "Lint", "bucket": "pass", "state": "SUCCESS"}]
-    head = "a" * 40
-    fake_gh = SettlingGh(
-        observations=[
-            {"head_sha": head, "checks": passing},
-            {"head_sha": head, "checks": passing, "state": "CLOSED"},
-            {"head_sha": head, "checks": passing, "state": "CLOSED"},
-            {"head_sha": head, "checks": passing, "state": "CLOSED"},
-        ],
-        classifications=[
-            pr_data(headRefOid=head),
-            pr_data(headRefOid=head, state="CLOSED"),
-        ],
-        classification_checks=[passing, passing],
+@pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
+@pytest.mark.parametrize(
+    ("check_bucket", "check_state"),
+    [("pass", "SUCCESS"), ("pending", "PENDING"), ("unknown", "UNKNOWN")],
+)
+def test_targeted_inventory_returns_terminal_pr_without_waiting(
+    state, check_bucket, check_state
+):
+    checks = [{"name": "Lint", "bucket": check_bucket, "state": check_state}]
+    if check_bucket == "unknown":
+        checks = subprocess.CompletedProcess(
+            ["gh", "pr", "checks"], 1, stdout="", stderr="request failed"
+        )
+    fake_gh = FakeGh(
+        [pr_data(state=state, mergeable="UNKNOWN", mergeStateStatus="UNKNOWN")],
+        checks={123: checks},
     )
+    clock = FakeClock()
+    messages = []
 
     result = inventory_module.build_settled_inventory(
         pr_number=123,
         now=NOW,
         run=fake_gh,
-        sleep=lambda _seconds: None,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        timeout_seconds=60,
+        progress=messages.append,
     )
 
     record = result["prs"][0]
-    assert record["state"] == "CLOSED"
+    assert record["state"] == state
     assert record["safety_qualified"] is False
     assert "PR is not open" in record["reasons"]
+    assert clock.sleeps == []
+    assert messages == [f"PR #123 is {state}; returning terminal classification"]
+
+
+@pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
+def test_targeted_inventory_retries_unstable_terminal_observation(state):
+    head = "a" * 40
+    unknown = subprocess.CompletedProcess(
+        ["gh", "pr", "checks"], 1, stdout="", stderr="request failed"
+    )
+    terminal = {"head_sha": head, "checks": unknown, "state": state}
+    classification = pr_data(
+        state=state, mergeable="UNKNOWN", mergeStateStatus="UNKNOWN"
+    )
+    fake_gh = SettlingGh(
+        observations=[
+            terminal,
+            {**terminal, "state": "OPEN", "state_after": state},
+            terminal,
+            terminal,
+        ],
+        classifications=[classification, classification],
+        classification_checks=[unknown, unknown],
+    )
+    clock = FakeClock()
+
+    result = inventory_module.build_settled_inventory(
+        pr_number=123,
+        now=NOW,
+        run=fake_gh,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        timeout_seconds=60,
+    )
+
+    assert result["prs"][0]["state"] == state
+    assert result["prs"][0]["safety_qualified"] is False
+    assert clock.sleeps == [30]
+    assert fake_gh.observations == []
+    assert fake_gh.classifications == []
+
+
+@pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
+def test_targeted_inventory_retries_when_final_pr_state_becomes_terminal(state):
+    passing = [{"name": "Lint", "bucket": "pass", "state": "SUCCESS"}]
+    head = "a" * 40
+    fake_gh = SettlingGh(
+        observations=[
+            {"head_sha": head, "checks": passing},
+            {"head_sha": head, "checks": passing, "state": state},
+            {"head_sha": head, "checks": passing, "state": state},
+            {"head_sha": head, "checks": passing, "state": state},
+        ],
+        classifications=[
+            pr_data(headRefOid=head),
+            pr_data(
+                headRefOid=head,
+                state=state,
+                mergeable="UNKNOWN",
+                mergeStateStatus="UNKNOWN",
+            ),
+        ],
+        classification_checks=[passing, passing],
+    )
+
+    clock = FakeClock()
+    result = inventory_module.build_settled_inventory(
+        pr_number=123,
+        now=NOW,
+        run=fake_gh,
+        sleep=clock.sleep,
+        monotonic=clock.monotonic,
+        timeout_seconds=30,
+    )
+
+    record = result["prs"][0]
+    assert record["state"] == state
+    assert record["safety_qualified"] is False
+    assert "PR is not open" in record["reasons"]
+    assert clock.sleeps == []
 
 
 def test_targeted_inventory_times_out_if_evidence_read_crosses_deadline():
@@ -1546,7 +1636,7 @@ def test_targeted_inventory_reports_why_it_is_waiting():
     )
 
     assert messages == [
-        "PR #123 head aaaaaaaaaaaa has pending required checks; retrying in 30 seconds"
+        "PR #123 OPEN head aaaaaaaaaaaa has pending required checks; retrying in 30 seconds"
     ]
 
 

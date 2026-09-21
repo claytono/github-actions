@@ -791,7 +791,7 @@ def build_settled_inventory(
         if checks_state == "unknown":
             if progress is not None:
                 progress(
-                    f"PR #{pr_number} head {head_sha[:12]} has unknown required-check "
+                    f"PR #{pr_number} OPEN head {head_sha[:12]} has unknown required-check "
                     f"state; retrying in {unknown_delay:g} seconds"
                 )
             wait(unknown_delay)
@@ -801,7 +801,7 @@ def build_settled_inventory(
             unknown_delay = poll_interval_seconds
             if progress is not None:
                 progress(
-                    f"PR #{pr_number} head {head_sha[:12]} has pending required "
+                    f"PR #{pr_number} OPEN head {head_sha[:12]} has pending required "
                     f"checks; retrying in {poll_interval_seconds:g} seconds"
                 )
             wait(poll_interval_seconds)
@@ -870,13 +870,20 @@ def build_settled_inventory(
             continue
         if wait_for_observation(final_observation):
             continue
+        if record["state"] in {"CLOSED", "MERGED"}:
+            if progress is not None:
+                progress(
+                    f"PR #{pr_number} is {record['state']}; "
+                    "returning terminal classification"
+                )
+            return inventory
         if (
             record["mergeable"] == "UNKNOWN"
             or record["merge_state_status"] == "UNKNOWN"
         ):
             if progress is not None:
                 progress(
-                    f"PR #{pr_number} head {record['head_sha'][:12]} has unknown "
+                    f"PR #{pr_number} OPEN head {record['head_sha'][:12]} has unknown "
                     f"mergeability; retrying in {poll_interval_seconds:g} seconds"
                 )
             wait(poll_interval_seconds)

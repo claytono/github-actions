@@ -26,11 +26,11 @@ inputs:
     required: false
     default: sonnet
   codex_evaluator_model:
-    description: Codex model for evaluator; empty uses Codex default
+    description: Codex model for evaluator; empty uses environment override or Sol
     required: false
     default: ''
   codex_auditor_model:
-    description: Codex model for auditor; empty uses Codex default
+    description: Codex model for auditor; empty uses environment override or Sol
     required: false
     default: ''
   codex_reasoning_effort:

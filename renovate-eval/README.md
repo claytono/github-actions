@@ -213,10 +213,12 @@ jobs:
 The `provider` input accepts `claude` or `codex`. If omitted, provider
 resolution order is explicit `provider` input, then `RENOVATE_EVAL_PROVIDER`,
 then Claude. In Codex mode, `codex_version` defaults to `latest` and optional
-`codex_evaluator_model` / `codex_auditor_model` inputs can override the Codex
-CLI default model. `codex_reasoning_effort` defaults to empty so the composite
-action uses the Codex CLI default unless a caller overrides it. `agent_timeout`
-defaults to `0`, which disables the subprocess timeout. Callers that need a
+`codex_evaluator_model` / `codex_auditor_model` inputs default to empty. Model
+selection uses explicit inputs first, then `RENOVATE_EVAL_CODEX_EVALUATOR_MODEL` /
+`RENOVATE_EVAL_CODEX_AUDITOR_MODEL`, then `gpt-5.6-sol`. Direct CLI runs use the
+same precedence with command-line options instead of action inputs.
+`codex_reasoning_effort` defaults to empty, leaving the reasoning level to Codex.
+`agent_timeout` defaults to `0`, which disables the subprocess timeout. Callers that need a
 bounded run can pass a positive timeout in seconds. The action passes `--yolo`
 by default through `yolo: true`; direct local script runs do not use yolo mode
 unless `--yolo` is passed.

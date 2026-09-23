@@ -1054,11 +1054,11 @@ def main() -> None:
     p_eval.add_argument("--auditor-model", default="sonnet")
     p_eval.add_argument(
         "--codex-evaluator-model",
-        default=os.environ.get("RENOVATE_EVAL_CODEX_EVALUATOR_MODEL", "gpt-5.6-sol"),
+        default=os.environ.get("RENOVATE_EVAL_CODEX_EVALUATOR_MODEL", ""),
     )
     p_eval.add_argument(
         "--codex-auditor-model",
-        default=os.environ.get("RENOVATE_EVAL_CODEX_AUDITOR_MODEL", "gpt-5.6-sol"),
+        default=os.environ.get("RENOVATE_EVAL_CODEX_AUDITOR_MODEL", ""),
     )
     p_eval.add_argument(
         "--codex-reasoning-effort",

@@ -7,6 +7,7 @@ import os
 import subprocess
 
 import pytest
+import renovate_eval
 from lib.agent_runner import (
     CODEX_MINIMAL_MODE_DISABLED_FEATURES,
     parse_codex_session_id,
@@ -29,6 +30,23 @@ def test_resolve_provider_env(monkeypatch):
 def test_resolve_provider_rejects_invalid():
     with pytest.raises(ValueError, match="Invalid provider"):
         resolve_provider("bad")
+
+
+def test_codex_model_cli_defaults_allow_codex_to_select_model(monkeypatch):
+    monkeypatch.delenv("RENOVATE_EVAL_CODEX_EVALUATOR_MODEL", raising=False)
+    monkeypatch.delenv("RENOVATE_EVAL_CODEX_AUDITOR_MODEL", raising=False)
+    monkeypatch.setattr(
+        "sys.argv", ["renovate_eval.py", "evaluate", "--pr", "1", "--provider", "codex"]
+    )
+    captured = {}
+    monkeypatch.setattr(
+        renovate_eval, "cmd_evaluate", lambda args: captured.update(vars(args))
+    )
+
+    renovate_eval.main()
+
+    assert captured["codex_evaluator_model"] == ""
+    assert captured["codex_auditor_model"] == ""
 
 
 def test_parse_codex_session_id():
@@ -289,6 +307,7 @@ def test_run_codex_uses_thread_id_and_last_message(monkeypatch, tmp_dir):
     assert "--dangerously-bypass-approvals-and-sandbox" not in called["cmd"]
     assert called["cmd"][called["cmd"].index("--sandbox") + 1] == "workspace-write"
     assert "--skip-git-repo-check" in called["cmd"]
+    assert "-m" not in called["cmd"]
     assert "--add-dir" not in called["cmd"]
     assert called["cmd"][called["cmd"].index("--cd") + 1] == os.path.realpath(tmp_dir)
     assert called["cmd"][-1] == "-"

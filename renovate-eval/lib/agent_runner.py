@@ -112,6 +112,30 @@ def run_agent(
     )
 
 
+def _claude_error_text(stdout: str) -> str:
+    """Return the error message Claude reports in its JSON result, if any."""
+    try:
+        output = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout
+    if isinstance(output, dict) and output.get("result"):
+        return str(output["result"])
+    return stdout
+
+
+def _failure_detail(stderr: str, stdout: str) -> str:
+    """Describe a failed agent run, preferring stderr over stdout.
+
+    Agent CLIs in JSON output mode can report fatal errors such as usage limits
+    only on stdout, so stderr alone can be empty.
+    """
+    if stderr and stderr.strip():
+        return stderr.strip()[:500]
+    if stdout and stdout.strip():
+        return stdout.strip()[-500:]
+    return "(no output)"
+
+
 def _run_claude(
     *,
     role: str,
@@ -171,7 +195,7 @@ def _run_claude(
     if result.returncode != 0:
         raise RuntimeError(
             f"claude exited with code {result.returncode}: "
-            f"{result.stderr[:500] if result.stderr else '(no stderr)'}"
+            f"{_failure_detail(result.stderr, _claude_error_text(result.stdout))}"
         )
 
     try:
@@ -273,7 +297,7 @@ def _run_codex(
     if result.returncode != 0:
         raise RuntimeError(
             f"codex exited with code {result.returncode}: "
-            f"{result.stderr[:500] if result.stderr else '(no stderr)'}"
+            f"{_failure_detail(result.stderr, result.stdout)}"
         )
 
     result_text = Path(last_message).read_text() if os.path.isfile(last_message) else ""

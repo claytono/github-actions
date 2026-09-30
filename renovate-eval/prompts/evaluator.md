@@ -131,10 +131,11 @@ your own independent research:
 
    This gate does NOT suppress introduced security vulnerabilities: if the
    proposed version introduces a CVE or security advisory that was not present
-   in the current version, include it in `security` or `newer_versions` and let
-   it influence `renovate:risk` even when config relevance is unknown. If you
-   can prove the deployment cannot reach the vulnerable path, state that in the
-   impact assessment, but still report the introduced vulnerability.
+   in the current version, include it in `security` or `newer_versions` even
+   when config relevance is unknown. If you can prove the deployment cannot
+   reach the vulnerable path, state that in the impact assessment, but still
+   report the introduced vulnerability. Weigh it against the vulnerabilities
+   the same update resolves, as described in the Security analysis step.
 
    **CRITICAL: Verify before claiming.** When you assert that a feature is or is
    not configured (e.g., "no cron config present"), you MUST have read the
@@ -210,8 +211,8 @@ your own independent research:
      version range (not present in the current version), flag this prominently —
      this should influence the verdict toward `renovate:risk`
    - If a newer version fixes a CVE or security advisory _introduced_ in the
-     proposed version range, always flag it regardless of config relevance. This
-     should influence the verdict toward `renovate:risk`
+     proposed version range, always flag it regardless of config relevance, and
+     weigh it as described in the Security analysis step
    - Pre-existing issues (present in BOTH the current deployed version and the
      proposed version) do NOT change the risk level of this PR and must NOT
      influence the label. A CVE that exists in both versions is not a reason to
@@ -227,6 +228,26 @@ your own independent research:
    - Only CVEs introduced or resolved by this change should influence the
      verdict. Pre-existing vulnerabilities (present before and after this PR)
      may be noted as context but do not make the change itself risky
+   - **Weigh introduced against resolved.** When the update both introduces
+     and resolves vulnerabilities, compare them on severity, reachability in
+     this deployment, and the components they affect. Declining the update
+     keeps every resolved vulnerability open, so state the net security effect
+     explicitly. An introduced issue whose reachability is unestablished does
+     not outweigh resolved issues of equal or greater severity; report the
+     trade-off and use `renovate:caution` at most. Use `renovate:risk` for an
+     introduced vulnerability only when it is reachable in this deployment or
+     clearly more severe than what the update resolves.
+   - **Toolchain and runtime vulnerabilities.** When the update ships compiled
+     binaries or bundles a language runtime or system library, treat the
+     build toolchain and bundled runtime as dependencies. Project CVE feeds
+     usually omit their advisories. Identify their versions in the current and
+     proposed published artifacts, not just the source tree, and check each
+     ecosystem's vulnerability database for advisories introduced or resolved
+     between them. Compare each advisory's affected range against both
+     versions: an advisory is introduced when it affects the proposed version
+     but not the current one, even if no released version fixes it yet.
+     Weigh these like any other introduced or resolved
+     vulnerability, and record the versions and lookups in the evidence file.
 
 ## Output
 

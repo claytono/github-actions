@@ -566,3 +566,64 @@ def test_run_codex_timeout_writes_partial_jsonl(monkeypatch, tmp_dir):
 
     with open(os.path.join(tmp_dir, "evaluator-output.jsonl")) as f:
         assert f.read() == raw
+
+
+def test_run_claude_nonzero_exit_reports_json_result_error(monkeypatch, tmp_dir):
+    output = {
+        "type": "result",
+        "is_error": True,
+        "result": "You've hit your session limit",
+    }
+
+    def fail_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, json.dumps(output), "")
+
+    monkeypatch.setattr("lib.agent_runner.subprocess.run", fail_run)
+
+    with pytest.raises(RuntimeError, match="session limit"):
+        run_agent(
+            provider="claude",
+            role="evaluator",
+            prompt="prompt",
+            artifact_dir=tmp_dir,
+            repo_root="/repo",
+            output_json=os.path.join(tmp_dir, "claude-output.json"),
+            model="opus",
+        )
+
+
+def test_run_claude_nonzero_exit_prefers_stderr(monkeypatch, tmp_dir):
+    def fail_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 1, json.dumps({"result": "stdout detail"}), "stderr detail"
+        )
+
+    monkeypatch.setattr("lib.agent_runner.subprocess.run", fail_run)
+
+    with pytest.raises(RuntimeError, match="stderr detail"):
+        run_agent(
+            provider="claude",
+            role="evaluator",
+            prompt="prompt",
+            artifact_dir=tmp_dir,
+            repo_root="/repo",
+            output_json=os.path.join(tmp_dir, "claude-output.json"),
+            model="opus",
+        )
+
+
+def test_run_codex_nonzero_exit_without_stderr_reports_stdout(monkeypatch, tmp_dir):
+    def fail_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "usage limit reached\n", "")
+
+    monkeypatch.setattr("lib.agent_runner.subprocess.run", fail_run)
+
+    with pytest.raises(RuntimeError, match="usage limit reached"):
+        run_agent(
+            provider="codex",
+            role="evaluator",
+            prompt="prompt",
+            artifact_dir=tmp_dir,
+            repo_root="/repo",
+            output_json=os.path.join(tmp_dir, "codex-output.json"),
+        )

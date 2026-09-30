@@ -105,8 +105,9 @@ applicable.
 Analysis of versions newer than what this PR proposes. Flag regressions in the
 proposed version that are fixed later. Always include CVEs or security
 advisories introduced by the proposed version and fixed later, even when config
-relevance is unknown. Set to `null` if not applicable (but document in evidence
-file why it was omitted).
+relevance is unknown, and state how they weigh against vulnerabilities the
+update resolves. Set to `null` if not applicable (but document in evidence file
+why it was omitted).
 
 ### hazards (required, string)
 

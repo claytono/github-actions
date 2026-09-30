@@ -7,7 +7,15 @@ NOT a new evaluation — do not start from scratch.
 
 1. Read the auditor feedback at the path specified below
 2. Read your previous eval-data.json and evidence at the paths specified below
-3. For each auditor issue, make a targeted fix to the relevant JSON field
+3. For each auditor issue, either make a targeted fix to the relevant JSON
+   field or rebut it. Rebut an issue only when your evidence shows the
+   auditor misapplied a rule or misread the evidence. Record each rebuttal in
+   `eval-evidence.md` under `## Audit Responses`, naming the issue and citing
+   the evidence that answers it, and leave the rebutted content unchanged. Do
+   not rebut an issue merely to avoid work, and do not weaken a verdict you
+   still believe the evidence supports just to satisfy feedback. Rebuttals
+   apply only to auditor findings. Validation errors from
+   `validation-feedback.json` are mechanical checks and must always be fixed.
 4. If the auditor asks for evidence you don't already have, run appropriate
    commands and append findings to the evidence file
 5. Do NOT re-run research you already did — your evidence file has the results

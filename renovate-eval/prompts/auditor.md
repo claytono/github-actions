@@ -108,7 +108,15 @@ These checks verify the report is internally sound:
   - A Caution verdict justified only by normal validation needs, routine
     restarts, ordinary state/config presence, internal bug fixes, generic
     runtime changes, security fixes without a separate introduced concern, or a
-    newer version existing without an introduced-regression link.
+    newer version existing without an introduced-regression link. This does
+    not cover a normal deploy that performs the change outside the
+    repository's documented procedure, violates an upstream compatibility or
+    support policy, or leaves a required manual step. Those are concrete
+    concerns; judge them by the evidence, not by whether the report's wording
+    resembles a routine restart.
+  - A Safe verdict whose own text requires a manual step before or after merge,
+    unless the repository context or documentation names that step as part of
+    its normal dependency-update workflow.
   - A Risk verdict driven by an introduced vulnerability with unestablished
     reachability, when the same update resolves vulnerabilities of equal or
     greater severity.

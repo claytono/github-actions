@@ -164,6 +164,23 @@ your own independent research:
    project-specific gates. Do not use `renovate:caution` merely because that
    normal workflow should be run.
 
+   The exemption covers needing the normal workflow, not what the workflow
+   does with this change. If merging makes an automatic deploy perform the
+   change outside the repository's documented procedure, violate an upstream
+   compatibility or support policy, or leave a required manual step before the
+   change is complete, that is a concrete concern for `renovate:caution` or
+   higher. A verdict that requires a manual step before or after merge is not
+   `renovate:safe` unless the repository context or documentation names that
+   step as part of its normal dependency-update workflow. Do not assume an
+   undocumented manual step is routine.
+
+   State each concern at full strength: what merging does, and which
+   documented procedure or upstream policy it departs from. Then state any
+   mitigating facts separately, such as the absence of reported failures. Do
+   not fold the concern into softening phrases such as "widely tolerated" or
+   "normally fine"; that reads as dismissing the concern and invites it to be
+   removed.
+
    Apply repository policy when judging whether a consequence or unresolved
    question requires action beyond normal operations. Do not invent additional
    repository requirements. Distinguish a policy accepting a consequence from

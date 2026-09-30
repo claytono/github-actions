@@ -212,7 +212,10 @@ jobs:
 
 The `provider` input accepts `claude` or `codex`. If omitted, provider
 resolution order is explicit `provider` input, then `RENOVATE_EVAL_PROVIDER`,
-then Claude. In Codex mode, `codex_version` defaults to `latest` and optional
+then Claude. In Claude mode, optional `evaluator_model` / `auditor_model`
+inputs default to empty, and model selection uses explicit inputs first, then
+`RENOVATE_EVAL_EVALUATOR_MODEL` / `RENOVATE_EVAL_AUDITOR_MODEL`, then `opus` /
+`sonnet`. In Codex mode, `codex_version` defaults to `latest` and optional
 `codex_evaluator_model` / `codex_auditor_model` inputs default to empty. Model
 selection uses explicit inputs first, then `RENOVATE_EVAL_CODEX_EVALUATOR_MODEL` /
 `RENOVATE_EVAL_CODEX_AUDITOR_MODEL`, then the Codex default. Direct CLI runs use
@@ -240,6 +243,14 @@ The action is intended for Linux runners with Python 3.11 or newer available.
 Provisioning `gh`, working Codex subscription auth, persistent `CODEX_HOME`, and
 private runner state is out of scope for the action. That infrastructure is
 managed separately.
+
+For claytono repositories, `.github/workflows/claytono-renovate-eval.yaml`
+wraps this action with eligibility gating and CI waiting. Callers pass
+`CACHIX_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` explicitly, and each caller
+repository's configuration variables pick the provider
+(`RENOVATE_EVAL_PROVIDER`, default Claude) and models (the `RENOVATE_EVAL_*`
+variables above). Codex needs no GitHub secret, so provider or model changes
+need no caller workflow edits.
 
 ## Labels
 

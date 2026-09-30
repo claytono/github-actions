@@ -18,13 +18,13 @@ inputs:
     required: false
     default: ''
   evaluator_model:
-    description: Model for evaluator
+    description: Claude model for evaluator; empty uses RENOVATE_EVAL_EVALUATOR_MODEL or opus
     required: false
-    default: opus
+    default: ''
   auditor_model:
-    description: Model for auditor
+    description: Claude model for auditor; empty uses RENOVATE_EVAL_AUDITOR_MODEL or sonnet
     required: false
-    default: sonnet
+    default: ''
   codex_evaluator_model:
     description: Codex model for evaluator; empty uses environment override or Codex default
     required: false
@@ -268,11 +268,15 @@ runs:
           --"$INPUT_MODE"
           --context "$INPUT_CONTEXT"
           --provider "$INPUT_PROVIDER"
-          --evaluator-model "$INPUT_EVALUATOR_MODEL"
-          --auditor-model "$INPUT_AUDITOR_MODEL"
           --ci-timeout "$INPUT_CI_TIMEOUT"
           --keep-artifacts
         )
+        if [[ -n "$INPUT_EVALUATOR_MODEL" ]]; then
+          ARGS+=(--evaluator-model "$INPUT_EVALUATOR_MODEL")
+        fi
+        if [[ -n "$INPUT_AUDITOR_MODEL" ]]; then
+          ARGS+=(--auditor-model "$INPUT_AUDITOR_MODEL")
+        fi
         if [[ -n "$INPUT_CODEX_EVALUATOR_MODEL" ]]; then
           ARGS+=(--codex-evaluator-model "$INPUT_CODEX_EVALUATOR_MODEL")
         fi

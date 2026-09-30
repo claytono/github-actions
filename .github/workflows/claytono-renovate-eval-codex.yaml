@@ -1,34 +1,9 @@
 ---
-# Account-specific reusable workflow for claytono repositories that use Codex
-# runner scale sets to evaluate Renovate PRs.
-#
-# Caller assumptions:
-# - The caller repository is in the claytono account.
-# - The caller has a self-hosted runner label that can run Codex, default: codex.
-# - Renovate PRs are authored by the Renovate GitHub app/bot.
-# - Repository context may be provided in the root .renovate-eval.md file.
-# - Cachix is optional but expects CACHIX_AUTH_TOKEN when setup_cachix is true.
-#
-# Caller example:
-#
-# jobs:
-#   renovate-eval:
-#     permissions:
-#       actions: read
-#       contents: read
-#       pull-requests: write
-#       issues: write
-#       checks: read
-#       statuses: read
-#     uses: claytono/github-actions/.github/workflows/claytono-renovate-eval-codex.yaml@main
-#     with:
-#       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
-#       trigger: ${{ github.event_name == 'pull_request' && 'auto' || 'manual' }}
-#       dry_run: ${{ inputs.dry_run || false }}
-#     secrets:
-#       cachix_auth_token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-# Use trigger: auto for pull_request_target callers too.
-name: Claytono Renovate PR Evaluation
+# Compatibility wrapper for callers of the former Codex-only workflow name. It
+# runs claytono-renovate-eval.yaml with provider: codex, so existing callers
+# keep evaluating with Codex until they switch to the provider-neutral workflow
+# and pass CLAUDE_CODE_OAUTH_TOKEN. Remove once no callers use it.
+name: Claytono Renovate PR Evaluation (Codex)
 on:
   workflow_call:
     inputs:
@@ -109,126 +84,8 @@ on:
       cachix_auth_token:
         description: Cachix auth token
         required: false
-concurrency:
-  group: claytono-renovate-eval-${{ github.repository }}-${{ inputs.pr_number }}-${{ inputs.trigger }}
-  cancel-in-progress: true
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: write
-    outputs:
-      should_evaluate: ${{ steps.check.outputs.should_evaluate }}
-      matrix: ${{ steps.check.outputs.matrix }}
-      trigger: ${{ steps.check.outputs.trigger }}
-    steps:
-      - name: Checkout workflow helpers
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          repository: claytono/github-actions
-          ref: main
-          path: .github-actions
-          persist-credentials: false
-      - name: Checkout PR source for fingerprint
-        if: inputs.trigger == 'auto' && inputs.pr_number != 'all'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          persist-credentials: false
-          ref: ${{ format('refs/pull/{0}/head', inputs.pr_number) }}
-          fetch-depth: 0
-          path: target
-      - name: Check evaluation eligibility
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          INPUT_DRY_RUN: ${{ inputs.dry_run }}
-          INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
-          INPUT_MAX_AUTOMATIC_EVALUATIONS: ${{ inputs.max_automatic_evaluations }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
-          INPUT_TRIGGER: ${{ inputs.trigger }}
-          TARGET_REPO_PATH: ${{ github.workspace }}/target
-        run: bash .github-actions/.github/scripts/renovate-eval-check-eligibility.sh
-  wait-for-checks:
-    name: 'Wait for PR #${{ matrix.pr_number }} checks'
-    needs: gate
-    if: needs.gate.outputs.should_evaluate == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJson(needs.gate.outputs.matrix) }}
-    permissions:
-      pull-requests: read
-      checks: read
-      statuses: read
-    steps:
-      - name: Skip manual pre-evaluation wait
-        if: needs.gate.outputs.trigger != 'auto'
-        run: echo "Manual evaluation does not wait for pre-existing checks."
-      - name: Wait for other checks
-        if: needs.gate.outputs.trigger == 'auto'
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-          OUR_WORKFLOW: ${{ github.workflow }}
-          PR_NUMBER: ${{ matrix.pr_number }}
-          WAIT_TIMEOUT_SECONDS: ${{ inputs.wait_timeout_seconds }}
-        run: |
-          set -euo pipefail
-          case "$WAIT_TIMEOUT_SECONDS" in
-            ''|*[!0-9]*)
-              echo "wait_timeout_seconds must be a positive integer, got: $WAIT_TIMEOUT_SECONDS" >&2
-              exit 1
-              ;;
-          esac
-          if (( WAIT_TIMEOUT_SECONDS <= 0 )); then
-            echo "wait_timeout_seconds must be greater than zero" >&2
-            exit 1
-          fi
-          interval=10
-          deadline=$((SECONDS + WAIT_TIMEOUT_SECONDS))
-          echo "Waiting up to ${WAIT_TIMEOUT_SECONDS}s for other PR checks to complete..."
-          while true; do
-            if ! checks_json=$(gh pr checks "$PR_NUMBER" --json bucket,workflow); then
-              echo "Unable to fetch PR checks; retrying..." >&2
-              pending=1
-            else
-              pending=$(jq -r --arg ours "$OUR_WORKFLOW" '
-                [
-                  .[]
-                  | select(
-                    (.workflow // "") != "" and
-                    (.workflow // "") != $ours and
-                    .bucket == "pending"
-                  )
-                ]
-                | length' <<<"$checks_json")
-            fi
-            if [[ "$pending" -eq 0 ]]; then
-              echo "All other checks complete"
-              break
-            fi
-            if (( SECONDS >= deadline )); then
-              echo "Timed out after ${WAIT_TIMEOUT_SECONDS}s waiting for other PR checks" >&2
-              exit 1
-            fi
-            echo "Still waiting on $pending check(s)..."
-            sleep "$interval"
-          done
-  evaluate-pr:
-    name: 'Evaluate PR #${{ matrix.pr_number }}'
-    needs:
-      - gate
-      - wait-for-checks
-    if: needs.gate.outputs.should_evaluate == 'true'
-    runs-on: ${{ inputs.codex_runner_label }}
-    timeout-minutes: ${{ inputs.evaluation_timeout_minutes }}
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJson(needs.gate.outputs.matrix) }}
+  renovate-eval:
     permissions:
       actions: read
       contents: read
@@ -236,102 +93,23 @@ jobs:
       issues: write
       checks: read
       statuses: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          persist-credentials: false
-          ref: ${{ matrix.head_sha }}
-          fetch-depth: 0
-      - name: Checkout evaluation action
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          repository: claytono/github-actions
-          ref: main
-          path: .github-actions
-          persist-credentials: false
-      - name: Install Nix
-        if: inputs.setup_nix
-        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31
-        with:
-          github_access_token: ${{ github.token }}
-      - name: Setup Cachix
-        if: inputs.setup_nix && inputs.setup_cachix
-        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
-        with:
-          name: ${{ inputs.cachix_name }}
-          authToken: ${{ secrets.cachix_auth_token }}
-      - name: Setup Nix environment
-        if: inputs.setup_nix
-        run: |
-          set -euo pipefail
-          before_env=$(mktemp)
-          after_env=$(mktemp)
-          env -0 > "$before_env"
-          nix develop --command env -0 > "$after_env"
-          python3 - "$before_env" "$after_env" "$GITHUB_ENV" <<'PY'
-          import pathlib
-          import re
-          import sys
-          import uuid
-          def read_env(path):
-              values = {}
-              for entry in pathlib.Path(path).read_bytes().split(b"\0"):
-                  if not entry or b"=" not in entry:
-                      continue
-                  key, value = entry.split(b"=", 1)
-                  values[key.decode()] = value.decode(errors="surrogateescape")
-              return values
-          name_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-          blocked_names = {
-              "ACTIONS_RUNTIME_TOKEN",
-              "CI",
-              "GITHUB_ENV",
-              "GITHUB_PATH",
-              "GITHUB_TOKEN",
-              "HOME",
-              "OLDPWD",
-              "PWD",
-              "RUNNER_TEMP",
-              "RUNNER_TOOL_CACHE",
-              "SHELL",
-              "SHLVL",
-              "_",
-          }
-          blocked_prefixes = ("ACTIONS_", "GITHUB_", "RUNNER_")
-          before = read_env(sys.argv[1])
-          after = read_env(sys.argv[2])
-          github_env = pathlib.Path(sys.argv[3])
-          with github_env.open("a", encoding="utf-8") as output:
-              for name in sorted(after):
-                  if before.get(name) == after[name]:
-                      continue
-                  if name in blocked_names or name.startswith(blocked_prefixes):
-                      continue
-                  if not name_re.fullmatch(name):
-                      continue
-                  delimiter = f"nix_env_{uuid.uuid4().hex}"
-                  output.write(f"{name}<<{delimiter}\n")
-                  output.write(after[name])
-                  output.write(f"\n{delimiter}\n")
-          PY
-      - name: Set Codex home
-        run: |
-          CODEX_HOME="${HOME}/.codex"
-          mkdir -p "$CODEX_HOME"
-          echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
-      - name: Evaluate
-        uses: ./.github-actions/renovate-eval
-        env:
-          EVAL_FINGERPRINT: ${{ matrix.fingerprint }}
-          EVAL_TRIGGER: ${{ needs.gate.outputs.trigger }}
-        with:
-          pr_number: ${{ matrix.pr_number }}
-          mode: ${{ inputs.dry_run && 'dry-run' || 'post' }}
-          context: ci
-          provider: codex
-          codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
-          agent_timeout: ${{ inputs.codex_agent_timeout }}
-          ci_timeout: ${{ inputs.ci_timeout }}
-          wait_for_ci: ${{ needs.gate.outputs.trigger != 'auto' }}
-          github_token: ${{ github.token }}
+    # Tracks main like the evaluation action checkout in the called workflow.
+    uses: claytono/github-actions/.github/workflows/claytono-renovate-eval.yaml@main  # zizmor: ignore[unpinned-uses]
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      trigger: ${{ inputs.trigger }}
+      dry_run: ${{ inputs.dry_run }}
+      provider: codex
+      codex_runner_label: ${{ inputs.codex_runner_label }}
+      codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
+      agent_timeout: ${{ inputs.codex_agent_timeout }}
+      evaluation_timeout_minutes: ${{ inputs.evaluation_timeout_minutes }}
+      ci_timeout: ${{ inputs.ci_timeout }}
+      wait_timeout_seconds: ${{ inputs.wait_timeout_seconds }}
+      max_automatic_evaluations: ${{ inputs.max_automatic_evaluations }}
+      fingerprint_ttl_seconds: ${{ inputs.fingerprint_ttl_seconds }}
+      setup_nix: ${{ inputs.setup_nix }}
+      setup_cachix: ${{ inputs.setup_cachix }}
+      cachix_name: ${{ inputs.cachix_name }}
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.cachix_auth_token }}

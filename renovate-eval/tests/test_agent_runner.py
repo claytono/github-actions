@@ -627,3 +627,33 @@ def test_run_codex_nonzero_exit_without_stderr_reports_stdout(monkeypatch, tmp_d
             repo_root="/repo",
             output_json=os.path.join(tmp_dir, "codex-output.json"),
         )
+
+
+def test_claude_model_cli_defaults_read_environment(monkeypatch):
+    monkeypatch.setenv("RENOVATE_EVAL_EVALUATOR_MODEL", "fable")
+    monkeypatch.setenv("RENOVATE_EVAL_AUDITOR_MODEL", "haiku")
+    monkeypatch.setattr("sys.argv", ["renovate_eval.py", "evaluate", "--pr", "1"])
+    captured = {}
+    monkeypatch.setattr(
+        renovate_eval, "cmd_evaluate", lambda args: captured.update(vars(args))
+    )
+
+    renovate_eval.main()
+
+    assert captured["evaluator_model"] == "fable"
+    assert captured["auditor_model"] == "haiku"
+
+
+def test_claude_model_cli_defaults_ignore_empty_environment(monkeypatch):
+    monkeypatch.setenv("RENOVATE_EVAL_EVALUATOR_MODEL", "")
+    monkeypatch.setenv("RENOVATE_EVAL_AUDITOR_MODEL", "")
+    monkeypatch.setattr("sys.argv", ["renovate_eval.py", "evaluate", "--pr", "1"])
+    captured = {}
+    monkeypatch.setattr(
+        renovate_eval, "cmd_evaluate", lambda args: captured.update(vars(args))
+    )
+
+    renovate_eval.main()
+
+    assert captured["evaluator_model"] == "opus"
+    assert captured["auditor_model"] == "sonnet"

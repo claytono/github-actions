@@ -1061,8 +1061,14 @@ def main() -> None:
         default=os.environ.get("RENOVATE_EVAL_PROVIDER", "claude"),
         choices=["claude", "codex"],
     )
-    p_eval.add_argument("--evaluator-model", default="opus")
-    p_eval.add_argument("--auditor-model", default="sonnet")
+    p_eval.add_argument(
+        "--evaluator-model",
+        default=os.environ.get("RENOVATE_EVAL_EVALUATOR_MODEL") or "opus",
+    )
+    p_eval.add_argument(
+        "--auditor-model",
+        default=os.environ.get("RENOVATE_EVAL_AUDITOR_MODEL") or "sonnet",
+    )
     p_eval.add_argument(
         "--codex-evaluator-model",
         default=os.environ.get("RENOVATE_EVAL_CODEX_EVALUATOR_MODEL", ""),

@@ -17,6 +17,11 @@ on:
         required: false
         type: boolean
         default: false
+      provider:
+        description: Provider override, 'claude' or 'codex'; empty uses RENOVATE_EVAL_PROVIDER
+        required: false
+        type: string
+        default: ''
       codex_runner_label:
         description: Runner label for Codex evaluation
         required: false
@@ -27,8 +32,8 @@ on:
         required: false
         type: string
         default: ''
-      codex_agent_timeout:
-        description: Codex agent subprocess timeout in seconds; 0 disables it
+      agent_timeout:
+        description: Agent subprocess timeout in seconds; 0 disables it
         required: false
         type: string
         default: '0'
@@ -41,12 +46,15 @@ jobs:
       issues: write
       checks: read
       statuses: read
-    uses: ./.github/workflows/claytono-renovate-eval-codex.yaml
+    uses: ./.github/workflows/claytono-renovate-eval.yaml
     with:
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
       trigger: ${{ github.event_name == 'pull_request' && 'auto' || 'manual' }}
       dry_run: ${{ inputs.dry_run || false }}
+      provider: ${{ inputs.provider }}
       codex_runner_label: ${{ inputs.codex_runner_label || 'codex' }}
       codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
-      codex_agent_timeout: ${{ inputs.codex_agent_timeout || '0' }}
+      agent_timeout: ${{ inputs.agent_timeout || '0' }}
       setup_cachix: false
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

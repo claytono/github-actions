@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Used by .github/workflows/claytono-renovate-eval-codex.yaml to decide which
-# Renovate PRs should be evaluated before handing work to a Codex runner.
+# Used by .github/workflows/claytono-renovate-eval.yaml to decide which
+# Renovate PRs should be evaluated before handing work to an agent runner.
 
 write_output() {
   printf '%s=%s\n' "$1" "$2" >>"$GITHUB_OUTPUT"

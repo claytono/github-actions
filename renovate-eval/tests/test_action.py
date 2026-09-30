@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 ACTION_YAML = Path(__file__).resolve().parents[1] / "action.yml"
 
 
@@ -61,3 +63,19 @@ def test_action_waits_for_ci_by_default_and_forwards_override():
     assert "ARGS+=(--wait-for-ci)" in action
     assert "ARGS+=(--no-wait-for-ci)" in action
     assert "Unsupported wait_for_ci value" in action
+
+
+def test_action_passes_claude_models_only_when_set():
+    action = ACTION_YAML.read_text()
+    inputs = yaml.safe_load(action)["inputs"]
+
+    assert inputs["evaluator_model"]["default"] == ""
+    assert inputs["auditor_model"]["default"] == ""
+    assert (
+        '--evaluator-model "$INPUT_EVALUATOR_MODEL"\n'
+        not in action.split("ARGS=(", 1)[1].split(")", 1)[0]
+    )
+    assert 'if [[ -n "$INPUT_EVALUATOR_MODEL" ]]; then' in action
+    assert 'ARGS+=(--evaluator-model "$INPUT_EVALUATOR_MODEL")' in action
+    assert 'if [[ -n "$INPUT_AUDITOR_MODEL" ]]; then' in action
+    assert 'ARGS+=(--auditor-model "$INPUT_AUDITOR_MODEL")' in action

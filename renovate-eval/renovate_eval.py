@@ -278,6 +278,7 @@ def _run_evaluate(
     total_cost = 0.0
     eval_data = None
     final_round = 0
+    agent_error = ""
 
     print()
     print("--- Starting evaluation loop ---")
@@ -324,7 +325,8 @@ def _run_evaluate(
                 )
             # Providers expose different failure types; report all at this CLI boundary.
             except Exception as e:  # noqa: BLE001
-                print(f"ERROR: Evaluator failed — {e}", file=sys.stderr)
+                agent_error = f"Evaluator failed — {e}"
+                print(f"ERROR: {agent_error}", file=sys.stderr)
                 break
             print(f"Evaluator completed in {_now() - eval_start}s")
 
@@ -444,7 +446,8 @@ def _run_evaluate(
             )
         # Providers expose different failure types; report all at this CLI boundary.
         except Exception as e:  # noqa: BLE001
-            print(f"ERROR: Auditor failed — {e}", file=sys.stderr)
+            agent_error = f"Auditor failed — {e}"
+            print(f"ERROR: {agent_error}", file=sys.stderr)
             break
         print(f"Auditor completed in {_now() - audit_start}s")
 
@@ -498,13 +501,21 @@ def _run_evaluate(
         except (json.JSONDecodeError, KeyError):
             pass
 
-    # (#1) If no valid eval-data was ever produced, bail out
-    if eval_data is None:
+    # (#1) Bail out without labeling if no valid eval-data was ever produced or
+    # an agent run failed. An agent failure (usage limit, crash, timeout) says
+    # nothing about the PR, so it must not become a failed-audit risk label.
+    if eval_data is None or agent_error:
         print()
-        print(
-            "ERROR: No valid evaluation data produced after all attempts",
-            file=sys.stderr,
-        )
+        if agent_error:
+            print(
+                f"ERROR: Evaluation aborted, no label applied: {agent_error}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "ERROR: No valid evaluation data produced after all attempts",
+                file=sys.stderr,
+            )
         _write_error_result(artifact_dir, total_cost)
         print()
         elapsed = _now() - total_start

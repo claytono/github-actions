@@ -31,7 +31,10 @@ Check each of these against the embedded rubric:
   repository's actual usage reaches that behavior, and what targeted validation
   is needed beyond normal validation?
 - **CVE handling:** Does the report follow the evaluator's Security analysis
-  rules and rule 5 ("Evaluate the change, not the current state")?
+  rules and rule 5 ("Evaluate the change, not the current state")? When the
+  update both introduces and resolves vulnerabilities, does the report state
+  the net security effect, and does the label follow from that comparison
+  rather than from the introduced issue alone?
 - **Evidence-based overrides:** If the evaluator claims a risk doesn't apply,
   does the evidence include actual commands and output proving it?
 - **Forward-looking analysis:** If the report has a Newer Versions section, is
@@ -106,6 +109,9 @@ These checks verify the report is internally sound:
     restarts, ordinary state/config presence, internal bug fixes, generic
     runtime changes, security fixes without a separate introduced concern, or a
     newer version existing without an introduced-regression link.
+  - A Risk verdict driven by an introduced vulnerability with unestablished
+    reachability, when the same update resolves vulnerabilities of equal or
+    greater severity.
 
 ## 3. Evidence Judgment
 

@@ -63,7 +63,10 @@ evaluate their changelogs for:
   issues. This should influence the verdict toward Caution or Risk.
 - Security vulnerabilities INTRODUCED in the proposed version range (not present
   in the current version) and fixed in a later release. Always flag these
-  regardless of config relevance. This should influence the verdict toward Risk.
+  regardless of config relevance. Weigh them against vulnerabilities the update
+  resolves and state the net security effect; an introduced issue with
+  unestablished reachability does not outweigh resolved issues of equal or
+  greater severity.
 - Pre-existing issues (bugs, CVEs, or vulnerabilities present in BOTH the
   current and proposed versions) do NOT affect the verdict — they are not risks
   introduced by this PR. Note them as context if serious, but they must not

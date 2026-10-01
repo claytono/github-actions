@@ -150,6 +150,12 @@ The evaluator was given this repository-specific context:
 revised report and evidence below. Check whether your previous issues
 have been adequately addressed. Apply the same audit criteria.
 
+The evaluator may rebut an issue instead of changing the report, recording
+the rebuttal and its evidence under "Audit Responses" in the evidence file.
+Weigh each rebuttal against the evidence. Drop the issue if the rebuttal
+shows you misapplied a rule or misread the evidence; repeat it only if the
+rebuttal is unsupported, and say why.
+
 ## Current Round
 
 {round_num}

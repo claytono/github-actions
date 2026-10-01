@@ -9,7 +9,6 @@ import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github/workflows"
 WORKFLOW = WORKFLOWS_DIR / "claytono-renovate-eval.yaml"
-CODEX_WRAPPER = WORKFLOWS_DIR / "claytono-renovate-eval-codex.yaml"
 LOCAL_CALLER = WORKFLOWS_DIR / "renovate-eval.yaml"
 RENOVATE_CONFIG = Path(__file__).resolve().parents[2] / "renovate.json"
 
@@ -127,17 +126,6 @@ def test_reusable_workflow_reads_model_settings_from_variables():
         "RENOVATE_EVAL_CODEX_REASONING_EFFORT",
     ):
         assert step["env"][name] == f"${{{{ vars.{name} }}}}"
-
-
-def test_codex_wrapper_pins_codex_provider_for_existing_callers():
-    job = _jobs(CODEX_WRAPPER)["renovate-eval"]
-
-    assert job["uses"] == (
-        "claytono/github-actions/.github/workflows/claytono-renovate-eval.yaml@main"
-    )
-    assert job["with"]["provider"] == "codex"
-    assert job["with"]["agent_timeout"] == "${{ inputs.codex_agent_timeout }}"
-    assert job["secrets"] == {"CACHIX_AUTH_TOKEN": "${{ secrets.cachix_auth_token }}"}
 
 
 def test_local_caller_passes_only_needed_secrets():

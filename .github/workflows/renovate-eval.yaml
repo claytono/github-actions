@@ -1,17 +1,36 @@
 ---
 name: Renovate PR Evaluation
-on:
-  pull_request:
+# workflow_run only starts a pass; the pass selects Renovate-authored PRs from
+# the inventory and never acts on the PR that triggered it. PRs from non-owners
+# do not run CI without approval, so they cannot fire this trigger on their own.
+on:  # zizmor: ignore[dangerous-triggers]
+  # Hourly pass, off the top of the hour to avoid scheduler load.
+  schedule:
+    - cron: 23 * * * *
+  # A Renovate branch finished CI, so its PR may now be ready to evaluate.
+  workflow_run:
+    workflows:
+      - Lint
     types:
-      - opened
-      - synchronize
-      - reopened
+      - completed
   workflow_dispatch:
     inputs:
       pr_number:
-        description: PR number to evaluate, or 'all' for all unevaluated
-        required: true
+        description: PR number to evaluate now; empty runs a normal pass
+        required: false
         type: string
+        default: ''
+      batch_size:
+        description: Maximum PRs evaluated in this pass; 0 only repairs labels
+        required: false
+        # A string, so an explicit 0 survives the `||` default below.
+        type: string
+        default: '6'
+      usage_threshold:
+        description: Claude used fraction (0-1] at which evaluation stops
+        required: false
+        type: string
+        default: '0.8'
       dry_run:
         description: Evaluate but do not post or label
         required: false
@@ -39,6 +58,10 @@ on:
         default: '0'
 jobs:
   renovate-eval:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'renovate/'))
     permissions:
       actions: read
       contents: read
@@ -48,8 +71,12 @@ jobs:
       statuses: read
     uses: ./.github/workflows/claytono-renovate-eval.yaml
     with:
-      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
-      trigger: ${{ github.event_name == 'pull_request' && 'auto' || 'manual' }}
+      pr_number: ${{ inputs.pr_number || '' }}
+      batch_size: ${{ fromJSON(inputs.batch_size || '6') }}
+      # Manual dispatch cannot disable the usage gate; empty means the default.
+      usage_threshold: ${{ inputs.usage_threshold || '0.8' }}
+      # Test this repository's own helpers, so a branch run exercises its code.
+      helpers_ref: ${{ github.sha }}
       dry_run: ${{ inputs.dry_run || false }}
       provider: ${{ inputs.provider }}
       codex_runner_label: ${{ inputs.codex_runner_label || 'codex' }}

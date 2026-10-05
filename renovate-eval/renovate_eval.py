@@ -176,6 +176,69 @@ def cmd_inventory(args: argparse.Namespace) -> None:
         print(output)
 
 
+def cmd_dispatch(args: argparse.Namespace) -> None:
+    """Plan one evaluation pass, repair labels, and emit the workflow matrix."""
+    from lib.dispatch import (
+        apply_repair,
+        confirm_repair,
+        plan_pass,
+        read_pr_head,
+        require_stable_head,
+        summarize,
+        write_outputs,
+    )
+
+    require_inventory_prerequisites()
+    inventory = build_inventory(
+        evaluation_max_age_seconds=args.evaluation_max_age_seconds,
+        pr_number=args.pr,
+        fingerprint_only_terminal_checks=args.pr is None,
+    )
+    plan = plan_pass(
+        inventory,
+        batch_size=args.batch_size,
+        max_age_seconds=args.evaluation_max_age_seconds,
+        force_pr=args.pr,
+        recheck=args.recheck,
+    )
+    if args.pr is not None:
+        try:
+            current_head = read_pr_head(args.pr, run=subprocess.run)
+        except RuntimeError as exc:
+            raise SystemExit(f"ERROR: {exc}") from None
+        plan = require_stable_head(plan, current_head)
+    for planned in plan["repair"]:
+        if args.dry_run:
+            continue
+        fresh = build_inventory(
+            evaluation_max_age_seconds=args.evaluation_max_age_seconds,
+            pr_number=planned["pr_number"],
+        )
+        repair = confirm_repair(
+            planned, fresh, max_age_seconds=args.evaluation_max_age_seconds
+        )
+        if repair is None:
+            print(f"Skipped label repair for #{planned['pr_number']}: PR changed")
+            continue
+        apply_repair(inventory["repository"], repair, run=subprocess.run)
+    print(summarize(plan))
+    if args.dry_run and plan["repair"]:
+        print("Dry run: label repairs were not applied")
+    write_outputs(plan, os.environ.get("GITHUB_OUTPUT"))
+
+
+def cmd_usage_check(args: argparse.Namespace) -> None:
+    """Exit non-zero unless Claude usage is below the threshold."""
+    from lib.usage import check_usage
+
+    decision = check_usage(args.threshold)
+    print(json.dumps(decision))
+    if not decision["allowed"]:
+        # Exit 1 means a closed gate; argparse reports invalid input with exit 2.
+        print(f"Claude usage gate closed: {decision['reason']}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def cmd_observe(args: argparse.Namespace) -> None:
     """Print low-cost mutable state for one PR while CI settles."""
     require_inventory_prerequisites()
@@ -868,9 +931,11 @@ def _get_prev_eval_count(pr_number: int | str) -> int:
 
 def _post_comment(pr_number: int | str, comment_body: str, artifact_dir: str) -> None:
     """Post or update comment on PR."""
+    from lib.common import gh_repo_view_command
+
     try:
         repo_result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            gh_repo_view_command("--json", "nameWithOwner", "-q", ".nameWithOwner"),
             check=False,
             capture_output=True,
             text=True,
@@ -1039,6 +1104,16 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _usage_threshold(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a number") from None
+    if not 0 < parsed <= 1:
+        raise argparse.ArgumentTypeError("must be greater than 0 and at most 1")
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="renovate_eval.py",
@@ -1166,6 +1241,51 @@ def main() -> None:
         help="Write inventory JSON to PATH instead of stdout",
     )
 
+    # dispatch
+    p_dispatch = sub.add_parser(
+        "dispatch",
+        help="Choose PRs to evaluate in one pass and repair evaluation labels",
+    )
+    p_dispatch.add_argument(
+        "--batch-size",
+        type=int,
+        default=6,
+        help="Maximum PRs to evaluate in one sweep (default: 6)",
+    )
+    p_dispatch.add_argument(
+        "--evaluation-max-age-seconds",
+        type=int,
+        default=7 * 24 * 60 * 60,
+        help="Age after which an unchanged evaluation is refreshed (default: 7 days)",
+    )
+    p_dispatch.add_argument(
+        "--pr",
+        type=_positive_int,
+        help="Evaluate only this PR, regardless of its evaluation state",
+    )
+    p_dispatch.add_argument(
+        "--recheck",
+        action="store_true",
+        help="With --pr, evaluate only if the PR still needs evaluation",
+    )
+    p_dispatch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan the pass without repairing labels",
+    )
+
+    # usage-check
+    p_usage = sub.add_parser(
+        "usage-check",
+        help="Fail unless Claude 5-hour and weekly usage are below a threshold",
+    )
+    p_usage.add_argument(
+        "--threshold",
+        type=_usage_threshold,
+        default=0.8,
+        help="Used fraction at which evaluations stop (default: 0.8)",
+    )
+
     # observe
     p_observe = sub.add_parser(
         "observe", help="Read one PR's head and required-check state"
@@ -1181,6 +1301,8 @@ def main() -> None:
         "init": cmd_init,
         "inventory": cmd_inventory,
         "observe": cmd_observe,
+        "dispatch": cmd_dispatch,
+        "usage-check": cmd_usage_check,
     }
     dispatch[args.command](args)
 

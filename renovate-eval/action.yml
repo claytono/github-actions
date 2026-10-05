@@ -82,6 +82,13 @@ inputs:
   github_token:
     description: GitHub token for gh CLI
     required: true
+  usage_threshold:
+    description: >-
+      Claude subscription used fraction (0-1] at which evaluation is skipped;
+      checked in both the 5-hour and weekly windows when an OAuth token is used.
+      Empty disables the check
+    required: false
+    default: '0.8'
 runs:
   using: composite
   steps:
@@ -111,6 +118,33 @@ runs:
       if: steps.provider.outputs.provider == 'claude'
       shell: bash
       run: npm install -g @anthropic-ai/claude-code
+    - name: Check Claude usage
+      id: usage
+      if: >-
+        steps.provider.outputs.provider == 'claude' &&
+        inputs.usage_threshold != '' &&
+        inputs.claude_code_oauth_token != ''
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        INPUT_USAGE_THRESHOLD: ${{ inputs.usage_threshold }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        rc=0
+        python3 "$ACTION_PATH/renovate_eval.py" usage-check \
+          --threshold "$INPUT_USAGE_THRESHOLD" || rc=$?
+        case "$rc" in
+          0) echo "allowed=true" >> "$GITHUB_OUTPUT" ;;
+          1)
+            echo "::notice::Skipping evaluation: Claude usage gate is closed"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::error::usage-check failed with exit code $rc"
+            exit "$rc"
+            ;;
+        esac
     - name: Install Codex CLI
       if: steps.provider.outputs.provider == 'codex'
       shell: bash
@@ -118,6 +152,7 @@ runs:
         CODEX_VERSION: ${{ inputs.codex_version }}
       run: npm install -g "@openai/codex@$CODEX_VERSION"
     - name: Check runner tools
+      if: steps.usage.outputs.allowed != 'false'
       shell: bash
       env:
         INPUT_PROVIDER: ${{ steps.provider.outputs.provider }}
@@ -140,6 +175,7 @@ runs:
           exit 1
         fi
     - name: Install Superpowers
+      if: steps.usage.outputs.allowed != 'false'
       id: superpowers
       shell: bash
       env:
@@ -239,6 +275,7 @@ runs:
         esac
     - name: Run evaluation
       id: evaluate
+      if: steps.usage.outputs.allowed != 'false'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -323,7 +360,7 @@ runs:
         fi
     - name: Upload artifacts
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
-      if: always()
+      if: always() && steps.usage.outputs.allowed != 'false'
       with:
         name: renovate-eval-${{ inputs.pr_number }}
         path: ${{ steps.evaluate.outputs.artifact_path || '/tmp/renovate-eval-*' }}

@@ -405,3 +405,26 @@ class TestGetCiStatus:
 
         monkeypatch.setattr("lib.common.subprocess.run", mock_run)
         assert get_ci_status(1234) == "unknown"
+
+
+def test_gh_repo_view_command_uses_gh_repo(monkeypatch):
+    from lib.common import gh_repo_view_command
+
+    monkeypatch.setenv("GH_REPO", "owner/repo")
+
+    assert gh_repo_view_command("--json", "name") == [
+        "gh",
+        "repo",
+        "view",
+        "owner/repo",
+        "--json",
+        "name",
+    ]
+
+
+def test_gh_repo_view_command_without_gh_repo(monkeypatch):
+    from lib.common import gh_repo_view_command
+
+    monkeypatch.delenv("GH_REPO", raising=False)
+
+    assert gh_repo_view_command() == ["gh", "repo", "view"]

@@ -99,12 +99,23 @@ def setup_logging(verbose: bool = False) -> None:
 # --- Auth verification ---
 
 
+def gh_repo_view_command(*args: str) -> list[str]:
+    """Build a ``gh repo view`` command that honors ``GH_REPO``.
+
+    Unlike most gh commands, ``gh repo view`` without an argument ignores
+    ``GH_REPO`` and reads the repository from the current git checkout, which
+    fails outside one and names the wrong repository inside another.
+    """
+    repo = os.environ.get("GH_REPO")
+    return ["gh", "repo", "view", *([repo] if repo else []), *args]
+
+
 def require_gh_auth() -> None:
     """Verify GitHub CLI authentication, matching bash require_gh_auth."""
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if gh_token:
         result = subprocess.run(
-            ["gh", "repo", "view"],
+            gh_repo_view_command(),
             check=False,
             capture_output=True,
             timeout=30,

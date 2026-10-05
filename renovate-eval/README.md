@@ -244,8 +244,28 @@ Provisioning `gh`, working Codex subscription auth, persistent `CODEX_HOME`, and
 private runner state is out of scope for the action. That infrastructure is
 managed separately.
 
+The `usage_threshold` input (default `0.8`) skips the evaluation when a Claude
+subscription window is too full. With `CLAUDE_CODE_OAUTH_TOKEN`, the action runs
+`renovate_eval.py usage-check`, which makes one minimal Haiku request and reads
+the 5-hour and weekly utilization from Claude Code's `rate_limit_event`. If
+either window is at or above the threshold, or the report cannot be read, the
+evaluation is skipped rather than failed. An empty threshold disables the check.
+
 For claytono repositories, `.github/workflows/claytono-renovate-eval.yaml`
-wraps this action with eligibility gating and CI waiting. Callers pass
+runs evaluations as passes instead of per-PR events. Each pass runs
+`renovate_eval.py dispatch`, which reads the complete inventory, repairs labels
+when a trusted sentinel already matches the current diff, and selects a
+shuffled batch (`batch_size`, default 6) of PRs whose evaluation is missing,
+stale, mismatched, or unusable and whose required checks have finished. The
+pass checks Claude usage once before starting, at most `max_parallel` (default 2) evaluations run at once, and each evaluation confirms the PR still needs
+evaluation before it starts. Passes queue rather than cancel one another, so an
+evaluation is never interrupted between posting its report and applying its
+labels. Callers typically run a pass hourly, when a Renovate branch finishes
+CI, and on manual dispatch; a `pr_number` input evaluates that PR immediately
+regardless of its evaluation state. A manual request uses its own concurrency
+group, so a later pass cannot replace it while it waits. `helpers_ref` (default
+`main`) selects the `claytono/github-actions` ref for the helpers and action;
+this repository's caller passes its own commit so branch runs test branch code. Callers pass
 `CACHIX_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` explicitly, and each caller
 repository's configuration variables pick the provider
 (`RENOVATE_EVAL_PROVIDER`, default Claude) and models (the `RENOVATE_EVAL_*`

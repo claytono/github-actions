@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-from .common import run_diff
+from .common import gh_repo_view_command, run_diff
 
 
 def _append_timeout_error(
@@ -332,7 +332,7 @@ def detect_repo() -> str:
     """Detect the GitHub repo (owner/name)."""
     try:
         result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            gh_repo_view_command("--json", "nameWithOwner", "-q", ".nameWithOwner"),
             check=False,
             capture_output=True,
             text=True,

@@ -26,8 +26,26 @@
 # - Repository context may be provided in the root .renovate-eval.md file.
 # - Cachix is optional but expects CACHIX_AUTH_TOKEN when setup_cachix is true.
 #
+# Evaluation runs as passes rather than per-PR events. Each pass lists the
+# open Renovate PRs, repairs labels whose trusted sentinel already matches the
+# current diff, and evaluates a shuffled batch of PRs whose evaluation is
+# missing, stale, or mismatched and whose required checks have finished. At
+# most max_parallel evaluations run at once, passes queue instead of cancelling
+# each other, and a running evaluation is never cancelled. Before each
+# evaluation, a Claude usage probe stops the pass when either the 5-hour or the
+# weekly subscription window is at or above usage_threshold.
+#
 # Caller example:
 #
+# on:
+#   schedule:
+#     - cron: '23 * * * *'
+#   workflow_dispatch:
+#     inputs:
+#       pr_number:
+#         description: PR number to evaluate now; empty runs a normal pass
+#         required: false
+#         type: string
 # jobs:
 #   renovate-eval:
 #     permissions:
@@ -39,26 +57,46 @@
 #       statuses: read
 #     uses: claytono/github-actions/.github/workflows/claytono-renovate-eval.yaml@main  # zizmor: ignore[unpinned-uses]
 #     with:
-#       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
-#       trigger: ${{ github.event_name == 'pull_request' && 'auto' || 'manual' }}
-#       dry_run: ${{ inputs.dry_run || false }}
+#       pr_number: ${{ inputs.pr_number || '' }}
 #     secrets:
 #       CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
 #       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-# Use trigger: auto for pull_request_target callers too.
 name: Claytono Renovate PR Evaluation
 on:
   workflow_call:
     inputs:
       pr_number:
-        description: PR number to evaluate, or 'all' for all unevaluated PRs
-        required: true
-        type: string
-      trigger:
-        description: "'auto' for PR events, 'manual' for dispatch/schedule calls"
+        description: >-
+          PR number to evaluate now regardless of its evaluation state; empty or
+          'all' runs a normal pass
         required: false
         type: string
-        default: manual
+        default: ''
+      batch_size:
+        description: Maximum PRs evaluated in one pass
+        required: false
+        type: number
+        default: 6
+      max_parallel:
+        description: Maximum evaluations running at once
+        required: false
+        type: number
+        default: 2
+      usage_threshold:
+        description: >-
+          Claude subscription used fraction (0-1] at which evaluations stop, in
+          either the 5-hour or the weekly window; empty disables the check
+        required: false
+        type: string
+        default: '0.8'
+      helpers_ref:
+        description: >-
+          claytono/github-actions ref for the evaluation helpers and action;
+          this repository's own caller passes its commit so branches test
+          their own code
+        required: false
+        type: string
+        default: main
       dry_run:
         description: Evaluate but do not post or label
         required: false
@@ -101,18 +139,6 @@ on:
         required: false
         type: string
         default: '1800'
-      wait_timeout_seconds:
-        description: Pre-evaluation GitHub Actions wait timeout in seconds
-        required: false
-        type: string
-        default: '3600'
-      max_automatic_evaluations:
-        description: >-
-          Maximum automatic evaluations per PR as a non-negative integer; 0 is
-          unlimited
-        required: false
-        type: number
-        default: 0
       fingerprint_ttl_seconds:
         description: >-
           Non-negative integer seconds before an unchanged fingerprint is
@@ -145,9 +171,16 @@ on:
       ANTHROPIC_API_KEY:
         description: Anthropic API key for provider claude
         required: false
+# One pass at a time per repository. A newer pass waits; it never cancels a
+# running evaluation. GitHub keeps one waiting run per group and a newer one
+# replaces it, which is right for passes because the survivor re-plans. A
+# manual request for a PR gets its own group so a pass cannot replace it.
 concurrency:
-  group: claytono-renovate-eval-${{ github.repository }}-${{ inputs.pr_number }}-${{ inputs.trigger }}
-  cancel-in-progress: true
+  group: >-
+    claytono-renovate-eval-${{ github.repository }}${{
+    inputs.pr_number != '' && inputs.pr_number != 'all' &&
+    format('-manual-{0}', inputs.pr_number) || '' }}
+  cancel-in-progress: false
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -155,10 +188,12 @@ jobs:
       contents: read
       pull-requests: read
       issues: write
+      checks: read
+      statuses: read
     outputs:
-      should_evaluate: ${{ steps.check.outputs.should_evaluate }}
-      matrix: ${{ steps.check.outputs.matrix }}
-      trigger: ${{ steps.check.outputs.trigger }}
+      should_evaluate: ${{ steps.usage.outputs.allowed == 'false' && 'false' || steps.plan.outputs.should_evaluate }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      manual: ${{ steps.plan.outputs.manual }}
       provider: ${{ steps.provider.outputs.provider }}
     steps:
       - name: Resolve provider
@@ -182,106 +217,91 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
         with:
           repository: claytono/github-actions
-          ref: main
+          ref: ${{ inputs.helpers_ref }}
           path: .github-actions
           persist-credentials: false
-      - name: Checkout PR source for fingerprint
-        if: inputs.trigger == 'auto' && inputs.pr_number != 'all'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          persist-credentials: false
-          ref: ${{ format('refs/pull/{0}/head', inputs.pr_number) }}
-          fetch-depth: 0
-          path: target
-      - name: Check evaluation eligibility
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          INPUT_DRY_RUN: ${{ inputs.dry_run }}
-          INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
-          INPUT_MAX_AUTOMATIC_EVALUATIONS: ${{ inputs.max_automatic_evaluations }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
-          INPUT_TRIGGER: ${{ inputs.trigger }}
-          TARGET_REPO_PATH: ${{ github.workspace }}/target
-        run: bash .github-actions/.github/scripts/renovate-eval-check-eligibility.sh
-  wait-for-checks:
-    name: 'Wait for PR #${{ matrix.pr_number }} checks'
-    needs: gate
-    if: needs.gate.outputs.should_evaluate == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJson(needs.gate.outputs.matrix) }}
-    permissions:
-      pull-requests: read
-      checks: read
-      statuses: read
-    steps:
-      - name: Skip manual pre-evaluation wait
-        if: needs.gate.outputs.trigger != 'auto'
-        run: echo "Manual evaluation does not wait for pre-existing checks."
-      - name: Wait for other checks
-        if: needs.gate.outputs.trigger == 'auto'
+      - name: Plan evaluation pass
+        id: plan
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          OUR_WORKFLOW: ${{ github.workflow }}
-          PR_NUMBER: ${{ matrix.pr_number }}
-          WAIT_TIMEOUT_SECONDS: ${{ inputs.wait_timeout_seconds }}
+          INPUT_BATCH_SIZE: ${{ inputs.batch_size }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
-          case "$WAIT_TIMEOUT_SECONDS" in
-            ''|*[!0-9]*)
-              echo "wait_timeout_seconds must be a positive integer, got: $WAIT_TIMEOUT_SECONDS" >&2
+          args=(
+            dispatch
+            --batch-size "$INPUT_BATCH_SIZE"
+            --evaluation-max-age-seconds "$INPUT_FINGERPRINT_TTL_SECONDS"
+          )
+          manual=false
+          case "$INPUT_PR_NUMBER" in
+            ''|all) ;;
+            *[!0-9]*)
+              echo "pr_number must be a PR number, 'all', or empty, got: $INPUT_PR_NUMBER" >&2
               exit 1
               ;;
+            *)
+              args+=(--pr "$INPUT_PR_NUMBER")
+              manual=true
+              ;;
           esac
-          if (( WAIT_TIMEOUT_SECONDS <= 0 )); then
-            echo "wait_timeout_seconds must be greater than zero" >&2
-            exit 1
+          if [[ "$INPUT_DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
           fi
-          interval=10
-          deadline=$((SECONDS + WAIT_TIMEOUT_SECONDS))
-          echo "Waiting up to ${WAIT_TIMEOUT_SECONDS}s for other PR checks to complete..."
-          while true; do
-            if ! checks_json=$(gh pr checks "$PR_NUMBER" --json bucket,workflow); then
-              echo "Unable to fetch PR checks; retrying..." >&2
-              pending=1
-            else
-              pending=$(jq -r --arg ours "$OUR_WORKFLOW" '
-                [
-                  .[]
-                  | select(
-                    (.workflow // "") != "" and
-                    (.workflow // "") != $ours and
-                    .bucket == "pending"
-                  )
-                ]
-                | length' <<<"$checks_json")
-            fi
-            if [[ "$pending" -eq 0 ]]; then
-              echo "All other checks complete"
-              break
-            fi
-            if (( SECONDS >= deadline )); then
-              echo "Timed out after ${WAIT_TIMEOUT_SECONDS}s waiting for other PR checks" >&2
-              exit 1
-            fi
-            echo "Still waiting on $pending check(s)..."
-            sleep "$interval"
-          done
+          echo "manual=$manual" >> "$GITHUB_OUTPUT"
+          python3 .github-actions/renovate-eval/renovate_eval.py "${args[@]}"
+      - name: Setup Node
+        if: >-
+          steps.plan.outputs.should_evaluate == 'true' &&
+          steps.provider.outputs.provider == 'claude' &&
+          inputs.usage_threshold != ''
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: '24'
+      - name: Check Claude usage
+        id: usage
+        if: >-
+          steps.plan.outputs.should_evaluate == 'true' &&
+          steps.provider.outputs.provider == 'claude' &&
+          inputs.usage_threshold != ''
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          INPUT_USAGE_THRESHOLD: ${{ inputs.usage_threshold }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]]; then
+            echo "No CLAUDE_CODE_OAUTH_TOKEN; subscription usage check does not apply"
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm install -g @anthropic-ai/claude-code
+          eval_cli=.github-actions/renovate-eval/renovate_eval.py
+          rc=0
+          python3 "$eval_cli" usage-check --threshold "$INPUT_USAGE_THRESHOLD" || rc=$?
+          case "$rc" in
+            0) echo "allowed=true" >> "$GITHUB_OUTPUT" ;;
+            1)
+              echo "::notice::Skipping this pass: Claude usage gate is closed"
+              echo "allowed=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::usage-check failed with exit code $rc"
+              exit "$rc"
+              ;;
+          esac
   evaluate-pr:
     name: 'Evaluate PR #${{ matrix.pr_number }}'
-    needs:
-      - gate
-      - wait-for-checks
+    needs: gate
     if: needs.gate.outputs.should_evaluate == 'true'
     runs-on: ${{ needs.gate.outputs.provider == 'codex' && inputs.codex_runner_label || inputs.claude_runner_label }}
     timeout-minutes: ${{ inputs.evaluation_timeout_minutes }}
     strategy:
+      # A failed evaluation must not cancel the others.
       fail-fast: false
-      max-parallel: 1
+      max-parallel: ${{ inputs.max_parallel }}
       matrix: ${{ fromJson(needs.gate.outputs.matrix) }}
     permissions:
       actions: read
@@ -291,32 +311,68 @@ jobs:
       checks: read
       statuses: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-        with:
-          persist-credentials: false
-          ref: ${{ matrix.head_sha }}
-          fetch-depth: 0
-      - name: Checkout evaluation action
+      # The PR checkout below replaces the workspace, so the recheck uses its
+      # own helper checkout before it.
+      - name: Checkout recheck helpers
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
         with:
           repository: claytono/github-actions
-          ref: main
+          ref: ${{ inputs.helpers_ref }}
+          path: .github-actions
+          persist-credentials: false
+      # Reads the PR's current head for the checkout. A pass also confirms the
+      # PR still needs evaluation; a manual request evaluates regardless.
+      - name: Confirm evaluation is still needed
+        id: recheck
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
+          INPUT_MANUAL: ${{ needs.gate.outputs.manual }}
+          PR_NUMBER: ${{ matrix.pr_number }}
+        run: |
+          set -euo pipefail
+          args=(
+            dispatch
+            --pr "$PR_NUMBER"
+            --evaluation-max-age-seconds "$INPUT_FINGERPRINT_TTL_SECONDS"
+          )
+          if [[ "$INPUT_MANUAL" != "true" ]]; then
+            args+=(--recheck)
+          fi
+          if [[ "$INPUT_DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          python3 .github-actions/renovate-eval/renovate_eval.py "${args[@]}"
+      - name: Checkout
+        if: steps.recheck.outputs.should_evaluate != 'false'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+        with:
+          persist-credentials: false
+          ref: ${{ steps.recheck.outputs.head_sha || matrix.head_sha }}
+          fetch-depth: 0
+      - name: Checkout evaluation action
+        if: steps.recheck.outputs.should_evaluate != 'false'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+        with:
+          repository: claytono/github-actions
+          ref: ${{ inputs.helpers_ref }}
           path: .github-actions
           persist-credentials: false
       - name: Install Nix
-        if: inputs.setup_nix
+        if: inputs.setup_nix && steps.recheck.outputs.should_evaluate != 'false'
         uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31
         with:
           github_access_token: ${{ github.token }}
       - name: Setup Cachix
-        if: inputs.setup_nix && inputs.setup_cachix
+        if: inputs.setup_nix && inputs.setup_cachix && steps.recheck.outputs.should_evaluate != 'false'
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
         with:
           name: ${{ inputs.cachix_name }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Setup Nix environment
-        if: inputs.setup_nix
+        if: inputs.setup_nix && steps.recheck.outputs.should_evaluate != 'false'
         run: |
           set -euo pipefail
           before_env=$(mktemp)
@@ -370,16 +426,18 @@ jobs:
                   output.write(f"\n{delimiter}\n")
           PY
       - name: Set Codex home
-        if: needs.gate.outputs.provider == 'codex'
+        if: needs.gate.outputs.provider == 'codex' && steps.recheck.outputs.should_evaluate != 'false'
         run: |
           CODEX_HOME="${HOME}/.codex"
           mkdir -p "$CODEX_HOME"
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
       - name: Evaluate
+        if: steps.recheck.outputs.should_evaluate != 'false'
         uses: ./.github-actions/renovate-eval
         env:
-          EVAL_FINGERPRINT: ${{ matrix.fingerprint }}
-          EVAL_TRIGGER: ${{ needs.gate.outputs.trigger }}
+          # The evaluator fingerprints the diff it evaluates, which can be newer
+          # than the one seen when the pass was planned.
+          EVAL_TRIGGER: ${{ needs.gate.outputs.manual == 'true' && 'manual' || 'auto' }}
           RENOVATE_EVAL_EVALUATOR_MODEL: ${{ vars.RENOVATE_EVAL_EVALUATOR_MODEL }}
           RENOVATE_EVAL_AUDITOR_MODEL: ${{ vars.RENOVATE_EVAL_AUDITOR_MODEL }}
           RENOVATE_EVAL_CODEX_EVALUATOR_MODEL: ${{ vars.RENOVATE_EVAL_CODEX_EVALUATOR_MODEL }}
@@ -393,7 +451,10 @@ jobs:
           codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
           agent_timeout: ${{ inputs.agent_timeout }}
           ci_timeout: ${{ inputs.ci_timeout }}
-          wait_for_ci: ${{ needs.gate.outputs.trigger != 'auto' }}
+          # Passes only select PRs whose required checks finished; a manual
+          # request may arrive earlier, so it waits for CI.
+          wait_for_ci: ${{ needs.gate.outputs.manual == 'true' }}
+          usage_threshold: ${{ inputs.usage_threshold }}
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

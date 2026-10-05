@@ -14,6 +14,7 @@ from .common import (
     SENTINEL_VERSION,
     VALID_LABELS,
     compute_fingerprint_bytes,
+    gh_repo_view_command,
     is_trusted_comment_author,
     parse_sentinel,
 )
@@ -458,7 +459,7 @@ def build_inventory(
 
     repository = _run_text(
         run,
-        ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        gh_repo_view_command("--json", "nameWithOwner", "-q", ".nameWithOwner"),
     )
 
     fields = (

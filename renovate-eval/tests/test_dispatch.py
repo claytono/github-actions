@@ -500,3 +500,40 @@ def test_read_pr_head_fails_loudly(returncode, stdout, stderr, detail):
 
     with pytest.raises(RuntimeError, match=f"failed to read head of PR #7: {detail}"):
         read_pr_head(7, run=run)
+
+
+@pytest.mark.parametrize("checks", ["pending", "unknown"])
+def test_allow_pending_checks_evaluates_before_ci_finishes(checks):
+    decision = classify(
+        _record(state="missing", checks=checks),
+        now=NOW,
+        max_age_seconds=WEEK,
+        allow_pending_checks=True,
+    )
+
+    assert decision["action"] == "evaluate"
+
+
+def test_allow_pending_checks_still_skips_current_evaluations():
+    decision = classify(
+        _record(checks="pending"),
+        now=NOW,
+        max_age_seconds=WEEK,
+        allow_pending_checks=True,
+    )
+
+    assert decision == {"action": "skip", "pr_number": 1, "reason": "current"}
+
+
+def test_plan_pass_recheck_passes_allow_pending_checks():
+    plan = plan_pass(
+        {"prs": [_record(7, state="missing", checks="pending")]},
+        batch_size=6,
+        max_age_seconds=WEEK,
+        force_pr=7,
+        recheck=True,
+        allow_pending_checks=True,
+        now=NOW,
+    )
+
+    assert [d["pr_number"] for d in plan["evaluate"]] == [7]

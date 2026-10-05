@@ -72,6 +72,14 @@ on:
         required: false
         type: string
         default: ''
+      trigger:
+        description: >-
+          Deprecated; for callers that still run per PR event. 'auto' with a
+          pr_number evaluates that PR only if it needs evaluation, waiting for
+          its CI. Pass callers omit it
+        required: false
+        type: string
+        default: ''
       batch_size:
         description: Maximum PRs evaluated in one pass
         required: false
@@ -174,12 +182,13 @@ on:
 # One pass at a time per repository. A newer pass waits; it never cancels a
 # running evaluation. GitHub keeps one waiting run per group and a newer one
 # replaces it, which is right for passes because the survivor re-plans. A
-# manual request for a PR gets its own group so a pass cannot replace it.
+# request for one PR, manual or from a per-PR event caller, gets its own group
+# so a pass cannot replace it.
 concurrency:
   group: >-
     claytono-renovate-eval-${{ github.repository }}${{
     inputs.pr_number != '' && inputs.pr_number != 'all' &&
-    format('-manual-{0}', inputs.pr_number) || '' }}
+    format('-pr-{0}', inputs.pr_number) || '' }}
   cancel-in-progress: false
 jobs:
   gate:
@@ -194,6 +203,7 @@ jobs:
       should_evaluate: ${{ steps.usage.outputs.allowed == 'false' && 'false' || steps.plan.outputs.should_evaluate }}
       matrix: ${{ steps.plan.outputs.matrix }}
       manual: ${{ steps.plan.outputs.manual }}
+      legacy: ${{ steps.plan.outputs.legacy }}
       provider: ${{ steps.provider.outputs.provider }}
     steps:
       - name: Resolve provider
@@ -229,6 +239,7 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_TRIGGER: ${{ inputs.trigger }}
         run: |
           set -euo pipefail
           args=(
@@ -237,6 +248,7 @@ jobs:
             --evaluation-max-age-seconds "$INPUT_FINGERPRINT_TTL_SECONDS"
           )
           manual=false
+          legacy=false
           case "$INPUT_PR_NUMBER" in
             ''|all) ;;
             *[!0-9]*)
@@ -245,13 +257,21 @@ jobs:
               ;;
             *)
               args+=(--pr "$INPUT_PR_NUMBER")
-              manual=true
+              if [[ "$INPUT_TRIGGER" == "auto" ]]; then
+                # A per-PR event caller: evaluate only if needed, even while
+                # CI runs, because no later trigger would catch this PR.
+                args+=(--recheck --allow-pending-checks)
+                legacy=true
+              else
+                manual=true
+              fi
               ;;
           esac
           if [[ "$INPUT_DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi
           echo "manual=$manual" >> "$GITHUB_OUTPUT"
+          echo "legacy=$legacy" >> "$GITHUB_OUTPUT"
           python3 .github-actions/renovate-eval/renovate_eval.py "${args[@]}"
       - name: Setup Node
         if: >-
@@ -329,6 +349,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_FINGERPRINT_TTL_SECONDS: ${{ inputs.fingerprint_ttl_seconds }}
+          INPUT_LEGACY: ${{ needs.gate.outputs.legacy }}
           INPUT_MANUAL: ${{ needs.gate.outputs.manual }}
           PR_NUMBER: ${{ matrix.pr_number }}
         run: |
@@ -340,6 +361,9 @@ jobs:
           )
           if [[ "$INPUT_MANUAL" != "true" ]]; then
             args+=(--recheck)
+          fi
+          if [[ "$INPUT_LEGACY" == "true" ]]; then
+            args+=(--allow-pending-checks)
           fi
           if [[ "$INPUT_DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
@@ -451,9 +475,11 @@ jobs:
           codex_reasoning_effort: ${{ inputs.codex_reasoning_effort }}
           agent_timeout: ${{ inputs.agent_timeout }}
           ci_timeout: ${{ inputs.ci_timeout }}
-          # Passes only select PRs whose required checks finished; a manual
-          # request may arrive earlier, so it waits for CI.
-          wait_for_ci: ${{ needs.gate.outputs.manual == 'true' }}
+          # Passes only select PRs whose required checks finished; manual and
+          # per-PR event requests may arrive earlier, so they wait for CI.
+          wait_for_ci: >-
+            ${{ needs.gate.outputs.manual == 'true' ||
+            needs.gate.outputs.legacy == 'true' }}
           usage_threshold: ${{ inputs.usage_threshold }}
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

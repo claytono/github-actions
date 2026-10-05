@@ -64,9 +64,18 @@ def label_repair(labels: list[str], verdict: str) -> dict[str, list[str]] | None
 
 
 def classify(
-    record: dict[str, Any], *, now: datetime, max_age_seconds: int
+    record: dict[str, Any],
+    *,
+    now: datetime,
+    max_age_seconds: int,
+    allow_pending_checks: bool = False,
 ) -> dict[str, Any]:
-    """Classify one inventory record as evaluate, repair, or skip."""
+    """Classify one inventory record as evaluate, repair, or skip.
+
+    ``allow_pending_checks`` serves per-PR event callers, which have no later
+    trigger to catch a PR once its CI finishes; their evaluation waits for CI
+    instead of being skipped.
+    """
     number = record["number"]
     labels = list(record.get("labels") or [])
     evaluation = record.get("evaluation") or {}
@@ -76,7 +85,7 @@ def classify(
     if record.get("automerge") or "automerge" in labels:
         return {"action": "skip", "pr_number": number, "reason": "automerge"}
     checks = (record.get("required_checks") or {}).get("state")
-    if checks not in TERMINAL_CHECK_STATES:
+    if checks not in TERMINAL_CHECK_STATES and not allow_pending_checks:
         return {"action": "skip", "pr_number": number, "reason": f"checks {checks}"}
     if not evaluation.get("current_fingerprint"):
         return {"action": "skip", "pr_number": number, "reason": "no fingerprint"}
@@ -202,6 +211,7 @@ def plan_pass(
     max_age_seconds: int,
     force_pr: int | None = None,
     recheck: bool = False,
+    allow_pending_checks: bool = False,
     now: datetime | None = None,
     rng: random.Random | None = None,
 ) -> dict[str, Any]:
@@ -228,7 +238,12 @@ def plan_pass(
             {"action": "skip", "pr_number": force_pr, "reason": "not found"}
         )
         return plan
-    decision = classify(records[0], now=now, max_age_seconds=max_age_seconds)
+    decision = classify(
+        records[0],
+        now=now,
+        max_age_seconds=max_age_seconds,
+        allow_pending_checks=allow_pending_checks,
+    )
     if not recheck:
         record = records[0]
         if record.get("state") != "OPEN":

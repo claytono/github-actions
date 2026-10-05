@@ -19,8 +19,8 @@ def test_reusable_workflow_runs_passes_without_cancelling_evaluations():
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     group = workflow["concurrency"]["group"]
     assert group.startswith("claytono-renovate-eval-${{ github.repository }}")
-    # Manual requests get their own group so a pass cannot replace them.
-    assert "format('-manual-{0}', inputs.pr_number)" in group
+    # Single-PR requests get their own group so a pass cannot replace them.
+    assert "format('-pr-{0}', inputs.pr_number)" in group
     assert set(workflow["jobs"]) == {"gate", "evaluate-pr"}
 
 
@@ -66,7 +66,10 @@ def test_evaluation_rechecks_need_and_waits_for_ci_only_when_manual():
     assert "--recheck" in steps["Confirm evaluation is still needed"]["run"]
     assert steps["Evaluate"]["if"] == "steps.recheck.outputs.should_evaluate != 'false'"
     evaluate_with = steps["Evaluate"]["with"]
-    assert evaluate_with["wait_for_ci"] == "${{ needs.gate.outputs.manual == 'true' }}"
+    assert evaluate_with["wait_for_ci"] == (
+        "${{ needs.gate.outputs.manual == 'true' || "
+        "needs.gate.outputs.legacy == 'true' }}"
+    )
     assert evaluate_with["usage_threshold"] == "${{ inputs.usage_threshold }}"
     assert "EVAL_FINGERPRINT" not in steps["Evaluate"]["env"]
 
@@ -86,7 +89,8 @@ def test_reusable_workflow_configures_evaluation_freshness():
     ]
 
     assert "max_automatic_evaluations" not in inputs
-    assert "trigger" not in inputs
+    # Kept for callers that still run per PR event.
+    assert inputs["trigger"]["default"] == ""
     assert inputs["fingerprint_ttl_seconds"] == {
         "description": (
             "Non-negative integer seconds before an unchanged fingerprint is "
@@ -264,3 +268,21 @@ def test_manual_requests_also_refresh_the_checkout_head():
         'if [[ "$INPUT_MANUAL" != "true" ]]; then\n  args+=(--recheck)'
         in (recheck["run"])
     )
+
+
+def test_per_pr_event_callers_get_legacy_mode():
+    gate = _jobs(WORKFLOW)["gate"]
+    plan = next(s for s in gate["steps"] if s["name"] == "Plan evaluation pass")
+    evaluate = _jobs(WORKFLOW)["evaluate-pr"]
+    recheck = next(
+        s
+        for s in evaluate["steps"]
+        if s["name"] == "Confirm evaluation is still needed"
+    )
+
+    assert plan["env"]["INPUT_TRIGGER"] == "${{ inputs.trigger }}"
+    assert 'if [[ "$INPUT_TRIGGER" == "auto" ]]; then' in plan["run"]
+    assert "args+=(--recheck --allow-pending-checks)" in plan["run"]
+    assert gate["outputs"]["legacy"] == "${{ steps.plan.outputs.legacy }}"
+    assert recheck["env"]["INPUT_LEGACY"] == "${{ needs.gate.outputs.legacy }}"
+    assert "args+=(--allow-pending-checks)" in recheck["run"]

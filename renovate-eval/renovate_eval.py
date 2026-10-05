@@ -200,6 +200,7 @@ def cmd_dispatch(args: argparse.Namespace) -> None:
         max_age_seconds=args.evaluation_max_age_seconds,
         force_pr=args.pr,
         recheck=args.recheck,
+        allow_pending_checks=args.allow_pending_checks,
     )
     if args.pr is not None:
         try:
@@ -1267,6 +1268,14 @@ def main() -> None:
         "--recheck",
         action="store_true",
         help="With --pr, evaluate only if the PR still needs evaluation",
+    )
+    p_dispatch.add_argument(
+        "--allow-pending-checks",
+        action="store_true",
+        help=(
+            "With --pr --recheck, evaluate even while required checks are "
+            "pending; the evaluation waits for CI (per-PR event callers)"
+        ),
     )
     p_dispatch.add_argument(
         "--dry-run",

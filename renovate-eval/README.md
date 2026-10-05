@@ -265,7 +265,11 @@ CI, and on manual dispatch; a `pr_number` input evaluates that PR immediately
 regardless of its evaluation state. A manual request uses its own concurrency
 group, so a later pass cannot replace it while it waits. `helpers_ref` (default
 `main`) selects the `claytono/github-actions` ref for the helpers and action;
-this repository's caller passes its own commit so branch runs test branch code. Callers pass
+this repository's caller passes its own commit so branch runs test branch code. Callers
+that still run on each PR event can keep passing `trigger: auto` with the PR
+number: that PR is evaluated only if it needs evaluation, its evaluation waits
+for CI, and it uses its own concurrency group, so these callers get fingerprint
+skipping and the usage gate but not the repository-wide parallel cap. Callers pass
 `CACHIX_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` explicitly, and each caller
 repository's configuration variables pick the provider
 (`RENOVATE_EVAL_PROVIDER`, default Claude) and models (the `RENOVATE_EVAL_*`

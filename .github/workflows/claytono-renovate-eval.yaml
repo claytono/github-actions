@@ -25,6 +25,9 @@
 # - Renovate PRs are authored by the Renovate GitHub app/bot.
 # - Repository context may be provided in the root .renovate-eval.md file.
 # - Cachix is optional but expects CACHIX_AUTH_TOKEN when setup_cachix is true.
+# - To let a pass continue with leftover PRs, the caller workflow defines
+#   workflow_dispatch with a boolean continuation input that it forwards to
+#   this workflow, and grants actions: write; continuation dispatches it.
 #
 # Evaluation runs as passes rather than per-PR events. Each pass lists the
 # open Renovate PRs, repairs labels whose trusted sentinel already matches the
@@ -46,10 +49,15 @@
 #         description: PR number to evaluate now; empty runs a normal pass
 #         required: false
 #         type: string
+#       continuation:
+#         description: Set by a pass that starts the next one; leave unset
+#         required: false
+#         type: boolean
+#         default: false
 # jobs:
 #   renovate-eval:
 #     permissions:
-#       actions: read
+#       actions: write  # lets a pass start the next one for leftover PRs
 #       contents: read
 #       pull-requests: write
 #       issues: write
@@ -58,6 +66,7 @@
 #     uses: claytono/github-actions/.github/workflows/claytono-renovate-eval.yaml@main  # zizmor: ignore[unpinned-uses]
 #     with:
 #       pr_number: ${{ inputs.pr_number || '' }}
+#       continuation: ${{ inputs.continuation || false }}
 #     secrets:
 #       CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
 #       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -105,6 +114,13 @@ on:
         required: false
         type: string
         default: main
+      continuation:
+        description: >-
+          Set only by a pass that starts the next one; callers forward their
+          own continuation dispatch input here
+        required: false
+        type: boolean
+        default: false
       dry_run:
         description: Evaluate but do not post or label
         required: false
@@ -206,6 +222,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       manual: ${{ steps.plan.outputs.manual }}
       legacy: ${{ steps.plan.outputs.legacy }}
+      deferred: ${{ steps.plan.outputs.deferred }}
       provider: ${{ steps.provider.outputs.provider }}
     steps:
       - name: Resolve provider
@@ -499,3 +516,48 @@ jobs:
           github_token: ${{ github.token }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  # Passes otherwise run only on triggers, so a backlog left when CI goes quiet
+  # would wait for the next scheduled pass. When every evaluation in this pass
+  # succeeded and the plan deferred PRs, start the next pass now. It waits in
+  # the concurrency group until this run finishes, re-plans, and re-checks
+  # usage, so the chain ends when nothing is deferred, the gate closes, or an
+  # evaluation fails. The next pass is dispatched with only continuation=true,
+  # so it runs with the caller's defaults; only passes known to use those
+  # defaults continue: scheduled and workflow_run passes, and continuations,
+  # which carry the explicit marker. A pass a person starts by hand, possibly
+  # with overrides, does not continue unless they set the marker themselves.
+  continue-pass:
+    needs:
+      - gate
+      - evaluate-pr
+    if: >-
+      always() &&
+      needs.gate.outputs.should_evaluate == 'true' &&
+      needs.evaluate-pr.result == 'success' &&
+      needs.gate.outputs.deferred != '0' &&
+      needs.gate.outputs.manual != 'true' &&
+      needs.gate.outputs.legacy != 'true' &&
+      !inputs.dry_run &&
+      (github.event_name != 'workflow_dispatch' || inputs.continuation)
+    runs-on: ubuntu-latest
+    # No permissions block: the job inherits the caller's token. Requesting
+    # actions: write here would make GitHub reject every caller that grants
+    # only actions: read, before any job ran. Callers that want continuation
+    # grant actions: write; without it the dispatch fails visibly.
+    steps:
+      - name: Start the next pass
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          DEFERRED: ${{ needs.gate.outputs.deferred }}
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |-
+          set -euo pipefail
+          # workflow_ref is owner/repo/.github/workflows/<file>@<ref> for the
+          # calling workflow.
+          # Cut at "@refs/", not the last "@", which a branch name may contain.
+          workflow_file=${WORKFLOW_REF%%@refs/*}
+          workflow_file=${workflow_file##*/}
+          echo "$DEFERRED PR(s) deferred; starting the next pass of $workflow_file"
+          gh workflow run "$workflow_file" --ref "$REF_NAME" -f continuation=true

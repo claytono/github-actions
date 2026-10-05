@@ -361,10 +361,21 @@ def test_write_outputs(tmp_path):
     assert output.read_text().splitlines() == [
         'matrix={"include":[{"pr_number":3,"head_sha":"s","fingerprint":"f"}]}',
         "should_evaluate=true",
+        "deferred=0",
         "head_sha=s",
         'matrix={"include":[]}',
         "should_evaluate=false",
+        "deferred=0",
     ]
+
+
+def test_write_outputs_reports_deferred_count(tmp_path):
+    output = tmp_path / "out"
+    plan = {"evaluate": [], "deferred": [{}, {}, {}], "repair": [], "skipped": []}
+
+    write_outputs(plan, str(output))
+
+    assert "deferred=3" in output.read_text().splitlines()
 
 
 def test_write_outputs_omits_head_for_multi_pr_batch(tmp_path):

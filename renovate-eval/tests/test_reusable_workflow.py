@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -22,7 +23,7 @@ def test_reusable_workflow_runs_passes_without_cancelling_evaluations():
     # Single-PR requests get their own group so a pass cannot replace them.
     # Manual and per-PR event requests use separate groups.
     assert "format('-{0}-{1}', inputs.trigger == 'auto' && 'pr' || 'manual'," in group
-    assert set(workflow["jobs"]) == {"gate", "evaluate-pr"}
+    assert set(workflow["jobs"]) == {"gate", "evaluate-pr", "continue-pass"}
 
 
 def test_reusable_workflow_caps_parallel_evaluations_without_fail_fast():
@@ -304,3 +305,87 @@ def test_evaluations_of_one_pr_are_serialized():
         "group": "claytono-renovate-eval-${{ github.repository }}-eval-${{ matrix.pr_number }}",
         "cancel-in-progress": "false",
     }
+
+
+def test_pass_continues_only_after_a_clean_pass_with_deferred_prs():
+    job = _jobs(WORKFLOW)["continue-pass"]
+    gate = _jobs(WORKFLOW)["gate"]
+
+    assert gate["outputs"]["deferred"] == "${{ steps.plan.outputs.deferred }}"
+    assert job["needs"] == ["gate", "evaluate-pr"]
+    # Inherits the caller's token, so callers granting only actions: read
+    # still validate.
+    assert "permissions" not in job
+    for condition in (
+        "needs.gate.outputs.should_evaluate == 'true'",
+        "needs.evaluate-pr.result == 'success'",
+        "needs.gate.outputs.deferred != '0'",
+        "needs.gate.outputs.manual != 'true'",
+        "needs.gate.outputs.legacy != 'true'",
+        "!inputs.dry_run",
+        # Only passes known to use defaults continue; a hand-started pass may
+        # carry overrides that the continuation dispatch would drop.
+        "(github.event_name != 'workflow_dispatch' || inputs.continuation)",
+    ):
+        assert condition in job["if"]
+    run = job["steps"][0]["run"]
+    assert (
+        'gh workflow run "$workflow_file" --ref "$REF_NAME" -f continuation=true' in run
+    )
+    assert "github.actor" not in job["if"]
+    assert job["steps"][0]["env"]["WORKFLOW_REF"] == "${{ github.workflow_ref }}"
+
+
+def test_local_caller_allows_starting_the_next_pass():
+    job = _jobs(LOCAL_CALLER)["renovate-eval"]
+
+    assert job["permissions"]["actions"] == "write"
+
+
+def test_caller_example_and_assumptions_cover_continuation():
+    workflow = WORKFLOW.read_text()
+
+    assert "#       actions: write" in workflow
+    assert "#       continuation: ${{ inputs.continuation || false }}" in workflow
+    assert "#   workflow_dispatch with a boolean continuation input" in workflow
+    inputs = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]["workflow_call"][
+        "inputs"
+    ]
+    assert inputs["continuation"]["default"] == "false"
+
+
+def test_local_caller_forwards_continuation():
+    caller = yaml.load(LOCAL_CALLER.read_text(), Loader=yaml.BaseLoader)
+    job = caller["jobs"]["renovate-eval"]
+
+    assert caller["on"]["workflow_dispatch"]["inputs"]["continuation"]["type"] == (
+        "boolean"
+    )
+    assert job["with"]["continuation"] == "${{ inputs.continuation || false }}"
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "owner/repo/.github/workflows/renovate-eval.yaml@refs/heads/main",
+        "owner/repo/.github/workflows/renovate-eval.yaml@refs/heads/feature@foo",
+    ],
+)
+def test_continuation_finds_the_caller_workflow_file(ref):
+    import subprocess
+
+    job = _jobs(WORKFLOW)["continue-pass"]
+    run = job["steps"][0]["run"]
+    parse = "\n".join(
+        line for line in run.splitlines() if line.strip().startswith("workflow_file=")
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", parse + '\nprintf %s "$workflow_file"'],
+        env={"WORKFLOW_REF": ref},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout == "renovate-eval.yaml"

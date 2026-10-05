@@ -346,6 +346,7 @@ def write_outputs(plan: dict[str, Any], github_output: str | None) -> None:
     lines = [
         f"matrix={json.dumps(matrix_for(plan['evaluate']), separators=(',', ':'))}",
         f"should_evaluate={'true' if plan['evaluate'] else 'false'}",
+        f"deferred={len(plan['deferred'])}",
     ]
     if len(plan["evaluate"]) == 1:
         # A single-PR recheck reports the head it confirmed, so the evaluation

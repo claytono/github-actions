@@ -269,7 +269,16 @@ this repository's caller passes its own commit so branch runs test branch code. 
 that still run on each PR event can keep passing `trigger: auto` with the PR
 number: that PR is evaluated only if it needs evaluation, its evaluation waits
 for CI, and it uses its own concurrency group, so these callers get fingerprint
-skipping and the usage gate but not the repository-wide parallel cap. Callers pass
+skipping and the usage gate but not the repository-wide parallel cap. When a
+pass ends with PRs deferred and every evaluation succeeded, it starts the next
+pass itself, so a backlog drains without waiting for the next trigger; the chain
+stops when nothing is deferred, the usage gate closes, or an evaluation fails.
+The next pass is dispatched with only `continuation=true`, so it runs with the
+caller's defaults; only scheduled and `workflow_run` passes and these marked
+continuations continue, and a pass started by hand with overrides does not.
+Callers that want this declare a boolean `continuation` dispatch input, forward
+it to this workflow, and grant `actions: write`; the job inherits the caller's
+token, so callers that grant only `actions: read` still run. Callers pass
 `CACHIX_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` explicitly, and each caller
 repository's configuration variables pick the provider
 (`RENOVATE_EVAL_PROVIDER`, default Claude) and models (the `RENOVATE_EVAL_*`

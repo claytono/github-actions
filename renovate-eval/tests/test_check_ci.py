@@ -336,7 +336,8 @@ class TestCheckCi:
 
     def test_wait_mode(self, monkeypatch, tmp_dir):
         monkeypatch.setattr(
-            "lib.check_ci.wait_for_ci", lambda pr, timeout: ("waited", 0)
+            "lib.check_ci.wait_for_ci",
+            lambda pr, timeout, exclude_run_id=None: ("waited", 0),
         )
         monkeypatch.setattr("lib.check_ci.fetch_failed_logs", lambda pr: "")
         outfile = os.path.join(tmp_dir, "ci.md")
@@ -369,3 +370,127 @@ class TestCheckCi:
         )
 
         assert calls == [(1234, "123")]
+
+
+def test_wait_with_exclude_polls_until_other_checks_finish(monkeypatch):
+    from lib import check_ci as mod
+
+    results = iter([("pending", 8), ("pending", 8), ("all done", 0)])
+    calls = []
+    monkeypatch.setattr(
+        mod,
+        "check_ci_once",
+        lambda pr, exclude_run_id=None, pending_first=False: (
+            calls.append((exclude_run_id, pending_first)) or next(results)
+        ),
+    )
+    sleeps = []
+
+    output, code = mod.wait_for_ci(
+        12, timeout=600, exclude_run_id="99", sleep=sleeps.append, monotonic=lambda: 0
+    )
+
+    assert (output, code) == ("all done", 0)
+    assert calls == [("99", True)] * 3
+    assert sleeps == [15, 15]
+
+
+def test_wait_with_exclude_times_out(monkeypatch):
+    from lib import check_ci as mod
+
+    monkeypatch.setattr(
+        mod,
+        "check_ci_once",
+        lambda pr, exclude_run_id=None, pending_first=False: ("pending", 8),
+    )
+    clock = iter([0, 5, 700])
+
+    output, code = mod.wait_for_ci(
+        12,
+        timeout=600,
+        exclude_run_id="99",
+        sleep=lambda _: None,
+        monotonic=lambda: next(clock),
+    )
+
+    assert code == 2
+    assert "timed out after 600s" in output
+
+
+def test_check_ci_wait_passes_exclude_run_id(monkeypatch, tmp_path):
+    from lib import check_ci as mod
+
+    seen = {}
+
+    def fake_wait(pr, timeout, exclude_run_id=None):
+        seen["exclude"] = exclude_run_id
+        return "ok", 0
+
+    monkeypatch.setattr(mod, "wait_for_ci", fake_wait)
+    monkeypatch.setattr(mod, "fetch_failed_logs", lambda pr: "")
+
+    assert (
+        mod.check_ci(
+            12, wait=True, output_file=str(tmp_path / "ci.md"), exclude_run_id="99"
+        )
+        == 0
+    )
+    assert seen["exclude"] == "99"
+
+
+def test_wait_sleeps_at_most_the_remaining_time(monkeypatch):
+    from lib import check_ci as mod
+
+    monkeypatch.setattr(
+        mod,
+        "check_ci_once",
+        lambda pr, exclude_run_id=None, pending_first=False: ("pending", 8),
+    )
+    clock = iter([0, 595, 600])
+    sleeps = []
+
+    output, code = mod.wait_for_ci(
+        12,
+        timeout=600,
+        exclude_run_id="99",
+        sleep=sleeps.append,
+        monotonic=lambda: next(clock),
+    )
+
+    assert code == 2
+    assert "timed out after 600s" in output
+    assert sleeps == [5]
+
+
+def test_pending_first_reports_pending_even_with_a_failure(monkeypatch):
+    import json
+    import subprocess
+
+    from lib import check_ci as mod
+
+    checks = [
+        {
+            "name": "a",
+            "bucket": "fail",
+            "state": "FAILURE",
+            "workflow": "w",
+            "link": "x",
+        },
+        {
+            "name": "b",
+            "bucket": "pending",
+            "state": "PENDING",
+            "workflow": "w",
+            "link": "y",
+        },
+    ]
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            a[0], 1, stdout=json.dumps(checks), stderr=""
+        ),
+    )
+
+    assert mod.check_ci_once(1, exclude_run_id="99")[1] == 1
+    assert mod.check_ci_once(1, exclude_run_id="99", pending_first=True)[1] == 8

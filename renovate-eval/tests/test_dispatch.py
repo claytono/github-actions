@@ -15,6 +15,7 @@ from lib.dispatch import (
     matrix_for,
     plan_pass,
     read_pr_head,
+    require_fingerprint,
     require_stable_head,
     select_work,
     summarize,
@@ -38,9 +39,11 @@ def _record(
     automerge=False,
     pr_state="OPEN",
     draft=False,
+    author="app/renovate",
 ):
     return {
         "number": number,
+        "author": author,
         "state": pr_state,
         "is_draft": draft,
         "head_sha": f"sha{number}",
@@ -537,3 +540,51 @@ def test_plan_pass_recheck_passes_allow_pending_checks():
     )
 
     assert [d["pr_number"] for d in plan["evaluate"]] == [7]
+
+
+def test_recheck_skips_non_renovate_prs():
+    plan = plan_pass(
+        {"prs": [_record(7, state="missing", author="someone")]},
+        batch_size=6,
+        max_age_seconds=WEEK,
+        force_pr=7,
+        recheck=True,
+        now=NOW,
+    )
+
+    assert plan["skipped"][0]["reason"] == "not a Renovate PR"
+
+
+def test_manual_request_ignores_author():
+    plan = plan_pass(
+        {"prs": [_record(7, author="someone")]},
+        batch_size=6,
+        max_age_seconds=WEEK,
+        force_pr=7,
+        now=NOW,
+    )
+
+    assert [d["pr_number"] for d in plan["evaluate"]] == [7]
+
+
+def test_require_fingerprint_fails_when_pr_could_not_be_fingerprinted():
+    plan = {
+        "evaluate": [],
+        "deferred": [],
+        "repair": [],
+        "skipped": [{"action": "skip", "pr_number": 7, "reason": "no fingerprint"}],
+    }
+
+    with pytest.raises(RuntimeError, match="could not fingerprint PR #7"):
+        require_fingerprint(plan)
+
+
+def test_require_fingerprint_allows_other_outcomes():
+    plan = {
+        "evaluate": [],
+        "deferred": [],
+        "repair": [],
+        "skipped": [{"action": "skip", "pr_number": 7, "reason": "current"}],
+    }
+
+    require_fingerprint(plan)

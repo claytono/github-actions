@@ -6,6 +6,8 @@ import json
 import re
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from urllib.parse import urlsplit
 
 from .common import log
@@ -20,9 +22,17 @@ def _find_timeout_cmd() -> str | None:
 
 
 def check_ci_once(
-    pr_number: int | str, exclude_run_id: str | None = None
+    pr_number: int | str,
+    exclude_run_id: str | None = None,
+    *,
+    pending_first: bool = False,
 ) -> tuple[str, int]:
-    """Run gh pr checks once and return (output, exit_code)."""
+    """Run gh pr checks once and return (output, exit_code).
+
+    With ``exclude_run_id``, a failed check normally outranks a pending one.
+    ``pending_first`` reports pending (8) while any check is still running,
+    which a wait needs so it does not stop at the first failure.
+    """
     cmd = ["gh", "pr", "checks", str(pr_number)]
     if exclude_run_id:
         cmd.extend(["--json", "name,state,bucket,workflow,link"])
@@ -66,7 +76,9 @@ def check_ci_once(
         )
 
     buckets = {str(check.get("bucket") or "").lower() for check in checks}
-    if "fail" in buckets:
+    if pending_first and "pending" in buckets:
+        exit_code = 8
+    elif "fail" in buckets:
         exit_code = 1
     elif "pending" in buckets:
         exit_code = 8
@@ -75,11 +87,39 @@ def check_ci_once(
     return "\n".join(lines), exit_code
 
 
-def wait_for_ci(pr_number: int | str, timeout: int = 300) -> tuple[str, int]:
+def wait_for_ci(
+    pr_number: int | str,
+    timeout: int = 300,
+    exclude_run_id: str | None = None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> tuple[str, int]:
     """Wait for CI checks to complete. Returns (output, exit_code).
 
     exit_code 0 = all passed, 1 = some failed, 2 = timeout.
+
+    With ``exclude_run_id``, pending checks from that GitHub Actions run are
+    ignored. A workflow triggered by the PR is itself a pending check on it,
+    and ``gh pr checks --watch`` would otherwise wait on it until the timeout.
     """
+    if exclude_run_id:
+        deadline = monotonic() + timeout
+        timed_out = f"\nWARNING: CI check timed out after {timeout}s"
+        while True:
+            output, exit_code = check_ci_once(
+                pr_number, exclude_run_id=exclude_run_id, pending_first=True
+            )
+            if exit_code != 8:
+                return output, exit_code
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return output + timed_out, 2
+            # Never sleep or poll past the deadline.
+            sleep(min(15, remaining))
+            if monotonic() >= deadline:
+                return output + timed_out, 2
+
     timeout_cmd = _find_timeout_cmd()
 
     if timeout_cmd:
@@ -188,7 +228,7 @@ def check_ci(
     lines = [f"# CI Status for PR #{pr_number}", ""]
 
     if wait:
-        output, exit_code = wait_for_ci(pr_number, timeout)
+        output, exit_code = wait_for_ci(pr_number, timeout, exclude_run_id)
         lines.append(output)
     else:
         if exclude_run_id:

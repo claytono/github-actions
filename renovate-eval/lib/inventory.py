@@ -173,7 +173,8 @@ def _complete_bounded_collections(
     return completed
 
 
-def _is_renovate_author(author: str) -> bool:
+def is_renovate_author(author: str) -> bool:
+    """Whether a PR author login belongs to Renovate."""
     return author in {"app/renovate", "renovate", "renovate[bot]"}
 
 
@@ -351,7 +352,7 @@ def _qualification_reasons(
         reasons.append("changed paths are incomplete")
     if not pr.get("_comments_complete", True):
         reasons.append("evaluation comments are incomplete")
-    if not _is_renovate_author(author):
+    if not is_renovate_author(author):
         reasons.append("author is not Renovate")
     if pr.get("state") != "OPEN":
         reasons.append("PR is not open")
@@ -494,7 +495,7 @@ def build_inventory(
         )
         if not isinstance(prs, list):
             raise RuntimeError("gh pr list returned an invalid PR list")
-        prs = [pr for pr in prs if _is_renovate_author(_author_login(pr.get("author")))]
+        prs = [pr for pr in prs if is_renovate_author(_author_login(pr.get("author")))]
 
     def classify(pr: dict[str, Any]) -> dict[str, Any]:
         pr = _complete_bounded_collections(run, repository, pr)
@@ -542,7 +543,7 @@ def _is_settling_candidate(record: dict[str, Any]) -> bool:
         record.get("state") == "OPEN"
         and not record.get("is_draft")
         and record.get("base_ref") == "main"
-        and _is_renovate_author(str(record.get("author") or ""))
+        and is_renovate_author(str(record.get("author") or ""))
         and bool(record.get("files_complete"))
         and {"renovate", "renovate:evaluated", "renovate:safe"} <= labels
         and not DISQUALIFYING_LABELS & labels

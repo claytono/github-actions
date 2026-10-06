@@ -233,6 +233,7 @@ class TestRunDiff:
 
     def test_gh_pr_diff_fallback(self, monkeypatch, tmp_dir):
         call_count = [0]
+        diff_env = {}
 
         def mock_run(cmd, **kw):
             call_count[0] += 1
@@ -248,6 +249,7 @@ class TestRunDiff:
             if "remote" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
             if "diff" in cmd:
+                diff_env.update(kw.get("env") or {})
                 return subprocess.CompletedProcess(cmd, 0, stdout=b"fallback diff")
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
@@ -258,6 +260,9 @@ class TestRunDiff:
         run_diff(1234, outfile)
         with open(outfile, "rb") as f:
             assert f.read() == b"fallback diff"
+        # The fallback diff ignores user and system git config.
+        assert diff_env["GIT_CONFIG_GLOBAL"] == os.devnull
+        assert diff_env["GIT_CONFIG_NOSYSTEM"] == "1"
 
     def test_fallback_rejects_failed_ref_lookup(self, monkeypatch, tmp_dir):
         commands = []

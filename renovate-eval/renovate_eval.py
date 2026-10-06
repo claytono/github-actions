@@ -304,7 +304,29 @@ def _run_evaluate(
     print("--- Fetching PR data ---")
     from lib.fetch_pr_data import fetch_pr_data
 
+    # Read the head around the fetch so the sentinel fingerprint describes
+    # exactly the data being evaluated; see evaluated_fingerprint.
+    from lib.git_fingerprint import (
+        GitFingerprinter,
+        evaluated_fingerprint,
+        read_pr_ref,
+        read_repository,
+    )
+
+    head_before = read_pr_ref(args.pr)
     fetch_pr_data(args.pr, artifact_dir)
+    head_after = read_pr_ref(args.pr)
+    repository = read_repository()
+    pr_fingerprint = (
+        evaluated_fingerprint(
+            head_before,
+            head_after,
+            patch_path=os.path.join(artifact_dir, "pr-diff.patch"),
+            fingerprinter=GitFingerprinter(repository),
+        )
+        if repository
+        else None
+    )
 
     # Check CI (#9: wrap in try/except so CI failure doesn't crash pipeline)
     print("--- Checking CI status ---")
@@ -622,10 +644,9 @@ def _run_evaluate(
     label = eval_data.get("label", "renovate:risk")
 
     # Fingerprint
-    diff_path = os.path.join(artifact_dir, "pr-diff.patch")
-    fingerprint = os.environ.get("EVAL_FINGERPRINT", "")
-    if not fingerprint and os.path.isfile(diff_path):
-        fingerprint = compute_fingerprint(diff_path)
+    # No fingerprint when the evaluated data cannot be pinned; the inventory
+    # then treats the evaluation as unusable and a later pass re-evaluates.
+    fingerprint = os.environ.get("EVAL_FINGERPRINT", "") or pr_fingerprint or ""
 
     # Eval count
     eval_count = 1

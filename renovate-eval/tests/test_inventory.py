@@ -12,7 +12,29 @@ from datetime import UTC, datetime
 import pytest
 import renovate_eval
 from lib import inventory as inventory_module
+from lib.common import compute_fingerprint_bytes
 from lib.inventory import build_inventory
+
+
+@pytest.fixture(autouse=True)
+def _diff_api_fingerprints(monkeypatch):
+    """Fingerprint through the fake runner's diffs instead of a real clone.
+
+    The git fingerprinter has its own tests against a real repository; these
+    tests keep counting diff fetches to check when fingerprints are computed.
+    """
+
+    def make(repository, run):
+        def fingerprint(pr):
+            result = run(["gh", "pr", "diff", str(pr["number"])], capture_output=True)
+            if result.returncode != 0 or not isinstance(result.stdout, bytes):
+                return None
+            return compute_fingerprint_bytes(result.stdout)
+
+        return fingerprint
+
+    monkeypatch.setattr(inventory_module, "make_fingerprinter", make)
+
 
 NOW = datetime(2026, 8, 26, 16, 0, tzinfo=UTC)
 DIFF = b"--- a/file\n+++ b/file\n-old\n+new\n"

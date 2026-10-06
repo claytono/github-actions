@@ -268,6 +268,16 @@ def compute_fingerprint_bytes(diff: bytes) -> str:
 # --- Diff utility ---
 
 
+def isolated_git_env() -> dict[str, str]:
+    """Environment that ignores user and system git config.
+
+    Settings such as color.ui=always or a different diff algorithm would
+    otherwise change the bytes that are hashed, so a fingerprint could depend
+    on who computes it.
+    """
+    return {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
 def run_diff(pr_number: int | str, output_file: str) -> None:
     """Write PR diff to output_file. Tries gh pr diff, falls back to git."""
     result = subprocess.run(
@@ -336,10 +346,20 @@ def run_diff(pr_number: int | str, output_file: str) -> None:
         ["git", "remote", "update"], check=True, capture_output=True, timeout=120
     )
     result = subprocess.run(
-        ["git", "diff", "--no-ext-diff", f"origin/{base_ref}...origin/{head_ref}"],
+        [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            f"origin/{base_ref}...origin/{head_ref}",
+        ],
         check=False,
         capture_output=True,
         timeout=120,
+        # The patch is hashed against the isolated git fingerprint, so its
+        # bytes must not depend on user config. The fetch above keeps it for
+        # credentials.
+        env=isolated_git_env(),
     )
     if result.returncode != 0:
         raise RuntimeError(f"git diff failed for origin/{base_ref}...origin/{head_ref}")

@@ -154,6 +154,7 @@ def test_naive_timestamp_is_treated_as_utc():
         ({"labels": ("renovate", "automerge")}, "automerge"),
         ({"checks": "pending"}, "checks pending"),
         ({"checks": "unknown"}, "checks unknown"),
+        ({"checks": "none"}, "checks none"),
         ({"current": None}, "no fingerprint"),
         ({"state": "unknown"}, "evaluation unknown"),
     ],
@@ -165,7 +166,7 @@ def test_skip_reasons(overrides, reason):
     assert decision["reason"] == reason
 
 
-@pytest.mark.parametrize("checks", ["passing", "failing", "none"])
+@pytest.mark.parametrize("checks", ["passing", "failing"])
 def test_terminal_check_states_are_eligible(checks):
     assert _classify(_record(state="missing", checks=checks))["action"] == "evaluate"
 

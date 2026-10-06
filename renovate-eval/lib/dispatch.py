@@ -23,7 +23,10 @@ from lib.inventory import is_renovate_author
 Run = Callable[..., subprocess.CompletedProcess]
 EVALUATED_LABEL = "renovate:evaluated"
 EVALUATE_STATES = {"missing", "mismatched", "stale"}
-TERMINAL_CHECK_STATES = {"passing", "failing", "none"}
+# Every PR has required checks, so none reported means GitHub has not yet
+# registered the checks for a fresh push; evaluating then would judge a head
+# that CI may still change, such as before rendered manifests are committed.
+TERMINAL_CHECK_STATES = {"passing", "failing"}
 
 
 def _parse_time(value: Any) -> datetime | None:

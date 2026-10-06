@@ -36,6 +36,8 @@ def loop_env(monkeypatch, tmp_dir, valid_eval_data):
     """Stub everything around the loop and record any GitHub side effects."""
     side_effects = []
     monkeypatch.setattr("lib.fetch_pr_data.fetch_pr_data", lambda pr, d: None)
+    monkeypatch.setattr("lib.git_fingerprint.read_pr_ref", lambda pr: None)
+    monkeypatch.setattr("lib.git_fingerprint.read_repository", lambda: None)
     monkeypatch.setattr("lib.check_ci.check_ci", lambda *a, **kw: 0)
     monkeypatch.setattr(
         renovate_eval,

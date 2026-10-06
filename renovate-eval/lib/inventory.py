@@ -13,11 +13,11 @@ from typing import Any
 from .common import (
     SENTINEL_VERSION,
     VALID_LABELS,
-    compute_fingerprint_bytes,
     gh_repo_view_command,
     is_trusted_comment_author,
     parse_sentinel,
 )
+from .git_fingerprint import GitFingerprinter
 
 DEFAULT_EVALUATION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 DISQUALIFYING_LABELS = {
@@ -213,18 +213,12 @@ def _required_checks(run: Run, pr_number: int) -> dict[str, Any]:
     return {"state": state, "checks": checks}
 
 
-def _current_fingerprint(run: Run, pr_number: int) -> str | None:
-    try:
-        result = run(
-            ["gh", "pr", "diff", str(pr_number)],
-            capture_output=True,
-            timeout=120,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0 or not isinstance(result.stdout, bytes):
-        return None
-    return compute_fingerprint_bytes(result.stdout)
+Fingerprinter = Callable[[dict[str, Any]], "str | None"]
+
+
+def make_fingerprinter(repository: str, run: Run) -> GitFingerprinter:
+    """Build the fingerprinter for one inventory; tests replace this."""
+    return GitFingerprinter(repository, run=run)
 
 
 def observe_pr(pr_number: int, *, run: Run | None = None) -> dict[str, Any]:
@@ -393,6 +387,7 @@ def _inventory_pr(
     *,
     now: datetime,
     max_age_seconds: int,
+    fingerprint: Fingerprinter,
     fingerprint_only_terminal_checks: bool = False,
 ) -> dict[str, Any]:
     number = int(pr["number"])
@@ -404,7 +399,10 @@ def _inventory_pr(
         "pending",
         "unknown",
     }:
-        current_fingerprint = _current_fingerprint(run, number)
+        try:
+            current_fingerprint = fingerprint(pr)
+        except (OSError, subprocess.TimeoutExpired):
+            current_fingerprint = None
     evaluation = _evaluation(
         pr,
         labels=labels,
@@ -497,6 +495,11 @@ def build_inventory(
             raise RuntimeError("gh pr list returned an invalid PR list")
         prs = [pr for pr in prs if is_renovate_author(_author_login(pr.get("author")))]
 
+    fingerprint = make_fingerprinter(repository, run)
+    if prs and hasattr(fingerprint, "prefetch"):
+        # One fetch for every base branch and PR head instead of one per PR.
+        fingerprint.prefetch(prs)
+
     def classify(pr: dict[str, Any]) -> dict[str, Any]:
         pr = _complete_bounded_collections(run, repository, pr)
         return _inventory_pr(
@@ -504,6 +507,7 @@ def build_inventory(
             pr,
             now=now,
             max_age_seconds=evaluation_max_age_seconds,
+            fingerprint=fingerprint,
             fingerprint_only_terminal_checks=fingerprint_only_terminal_checks,
         )
 

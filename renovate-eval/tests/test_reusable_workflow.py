@@ -20,7 +20,8 @@ def test_reusable_workflow_runs_passes_without_cancelling_evaluations():
     group = workflow["concurrency"]["group"]
     assert group.startswith("claytono-renovate-eval-${{ github.repository }}")
     # Single-PR requests get their own group so a pass cannot replace them.
-    assert "format('-pr-{0}', inputs.pr_number)" in group
+    # Manual and per-PR event requests use separate groups.
+    assert "format('-{0}-{1}', inputs.trigger == 'auto' && 'pr' || 'manual'," in group
     assert set(workflow["jobs"]) == {"gate", "evaluate-pr"}
 
 
@@ -286,3 +287,20 @@ def test_per_pr_event_callers_get_legacy_mode():
     assert gate["outputs"]["legacy"] == "${{ steps.plan.outputs.legacy }}"
     assert recheck["env"]["INPUT_LEGACY"] == "${{ needs.gate.outputs.legacy }}"
     assert "args+=(--allow-pending-checks)" in recheck["run"]
+
+
+def test_trigger_values_are_validated():
+    gate = _jobs(WORKFLOW)["gate"]
+    plan = next(s for s in gate["steps"] if s["name"] == "Plan evaluation pass")
+
+    assert "''|auto|manual) ;;" in plan["run"]
+    assert "trigger must be 'auto', 'manual', or empty" in plan["run"]
+
+
+def test_evaluations_of_one_pr_are_serialized():
+    evaluate = _jobs(WORKFLOW)["evaluate-pr"]
+
+    assert evaluate["concurrency"] == {
+        "group": "claytono-renovate-eval-${{ github.repository }}-eval-${{ matrix.pr_number }}",
+        "cancel-in-progress": "false",
+    }

@@ -182,13 +182,15 @@ on:
 # One pass at a time per repository. A newer pass waits; it never cancels a
 # running evaluation. GitHub keeps one waiting run per group and a newer one
 # replaces it, which is right for passes because the survivor re-plans. A
-# request for one PR, manual or from a per-PR event caller, gets its own group
-# so a pass cannot replace it.
+# request for one PR gets its own group so a pass cannot replace it, and manual
+# and per-PR event requests use separate groups so an event cannot replace a
+# waiting manual request.
 concurrency:
   group: >-
     claytono-renovate-eval-${{ github.repository }}${{
     inputs.pr_number != '' && inputs.pr_number != 'all' &&
-    format('-pr-{0}', inputs.pr_number) || '' }}
+    format('-{0}-{1}', inputs.trigger == 'auto' && 'pr' || 'manual',
+    inputs.pr_number) || '' }}
   cancel-in-progress: false
 jobs:
   gate:
@@ -247,6 +249,13 @@ jobs:
             --batch-size "$INPUT_BATCH_SIZE"
             --evaluation-max-age-seconds "$INPUT_FINGERPRINT_TTL_SECONDS"
           )
+          case "$INPUT_TRIGGER" in
+            ''|auto|manual) ;;
+            *)
+              echo "trigger must be 'auto', 'manual', or empty, got: $INPUT_TRIGGER" >&2
+              exit 1
+              ;;
+          esac
           manual=false
           legacy=false
           case "$INPUT_PR_NUMBER" in
@@ -318,6 +327,12 @@ jobs:
     if: needs.gate.outputs.should_evaluate == 'true'
     runs-on: ${{ needs.gate.outputs.provider == 'codex' && inputs.codex_runner_label || inputs.claude_runner_label }}
     timeout-minutes: ${{ inputs.evaluation_timeout_minutes }}
+    # Serialize evaluations of one PR across passes, manual requests, and
+    # per-PR events, which use different run-level groups. A running
+    # evaluation is never cancelled.
+    concurrency:
+      group: claytono-renovate-eval-${{ github.repository }}-eval-${{ matrix.pr_number }}
+      cancel-in-progress: false
     strategy:
       # A failed evaluation must not cancel the others.
       fail-fast: false

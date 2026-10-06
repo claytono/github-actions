@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import quote
 
 from lib.common import VALID_LABELS
+from lib.inventory import is_renovate_author
 
 Run = Callable[..., subprocess.CompletedProcess]
 EVALUATED_LABEL = "renovate:evaluated"
@@ -69,8 +70,12 @@ def classify(
     now: datetime,
     max_age_seconds: int,
     allow_pending_checks: bool = False,
+    require_renovate_author: bool = False,
 ) -> dict[str, Any]:
     """Classify one inventory record as evaluate, repair, or skip.
+
+    ``require_renovate_author`` guards automatic single-PR requests, whose PR
+    comes from an event rather than the Renovate-only repository listing.
 
     ``allow_pending_checks`` serves per-PR event callers, which have no later
     trigger to catch a PR once its CI finishes; their evaluation waits for CI
@@ -82,6 +87,8 @@ def classify(
     state = evaluation.get("state")
     if record.get("state") != "OPEN" or record.get("is_draft"):
         return {"action": "skip", "pr_number": number, "reason": "not open"}
+    if require_renovate_author and not is_renovate_author(record.get("author") or ""):
+        return {"action": "skip", "pr_number": number, "reason": "not a Renovate PR"}
     if record.get("automerge") or "automerge" in labels:
         return {"action": "skip", "pr_number": number, "reason": "automerge"}
     checks = (record.get("required_checks") or {}).get("state")
@@ -243,6 +250,7 @@ def plan_pass(
         now=now,
         max_age_seconds=max_age_seconds,
         allow_pending_checks=allow_pending_checks,
+        require_renovate_author=recheck,
     )
     if not recheck:
         record = records[0]
@@ -263,6 +271,19 @@ def plan_pass(
         decision
     )
     return plan
+
+
+def require_fingerprint(plan: dict[str, Any]) -> None:
+    """Fail when a single-PR request could not fingerprint its PR.
+
+    Per-PR event callers have no later trigger, so silently skipping would
+    leave the PR unevaluated; failing lets the run be retried.
+    """
+    for item in plan["skipped"]:
+        if item["reason"] == "no fingerprint":
+            raise RuntimeError(
+                f"could not fingerprint PR #{item['pr_number']}; re-run to retry"
+            )
 
 
 def read_pr_head(pr_number: int, *, run: Run) -> str:

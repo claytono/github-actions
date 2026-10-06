@@ -183,6 +183,7 @@ def cmd_dispatch(args: argparse.Namespace) -> None:
         confirm_repair,
         plan_pass,
         read_pr_head,
+        require_fingerprint,
         require_stable_head,
         summarize,
         write_outputs,
@@ -208,6 +209,11 @@ def cmd_dispatch(args: argparse.Namespace) -> None:
         except RuntimeError as exc:
             raise SystemExit(f"ERROR: {exc}") from None
         plan = require_stable_head(plan, current_head)
+        if args.allow_pending_checks:
+            try:
+                require_fingerprint(plan)
+            except RuntimeError as exc:
+                raise SystemExit(f"ERROR: {exc}") from None
     for planned in plan["repair"]:
         if args.dry_run:
             continue
@@ -312,6 +318,7 @@ def _run_evaluate(
                 wait=True,
                 timeout=args.ci_timeout,
                 output_file=ci_status_file,
+                exclude_run_id=os.environ.get("GITHUB_RUN_ID"),
             )
             if exit_code == 2:
                 log.warning("CI check timed out — continuing with unknown status")

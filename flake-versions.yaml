@@ -3,15 +3,15 @@
 # Regenerate with: scripts/gen-flake-versions
 ShellCheck: 0.11.0
 actionlint: 1.7.12
-bash-interactive: 5.3p15
-git: 2.55.0
+bash-interactive: 5.3p20
+git: 2.56.0
 jq: 1.8.2
 nodejs: 24.21.0
-pre-commit: 4.6.2
-python3: 3.14.7-env
+pre-commit: 4.7.0
+python3: 3.14.8-env
 renovate: 44.151.2
 shfmt: 3.14.1
-uv: 0.13.0
+uv: 0.13.4
 yamlfix: 1.19.1
 yamllint: 1.37.1
-zizmor: 1.31.0
+zizmor: 1.31.1

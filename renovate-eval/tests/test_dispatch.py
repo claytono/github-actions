@@ -40,10 +40,12 @@ def _record(
     pr_state="OPEN",
     draft=False,
     author="app/renovate",
+    cross_repository=False,
 ):
     return {
         "number": number,
         "author": author,
+        "cross_repository": cross_repository,
         "state": pr_state,
         "is_draft": draft,
         "head_sha": f"sha{number}",
@@ -557,6 +559,19 @@ def test_plan_pass_recheck_passes_allow_pending_checks():
 def test_recheck_skips_non_renovate_prs():
     plan = plan_pass(
         {"prs": [_record(7, state="missing", author="someone")]},
+        batch_size=6,
+        max_age_seconds=WEEK,
+        force_pr=7,
+        recheck=True,
+        now=NOW,
+    )
+
+    assert plan["skipped"][0]["reason"] == "not a Renovate PR"
+
+
+def test_recheck_skips_fork_prs():
+    plan = plan_pass(
+        {"prs": [_record(7, state="missing", cross_repository=True)]},
         batch_size=6,
         max_age_seconds=WEEK,
         force_pr=7,

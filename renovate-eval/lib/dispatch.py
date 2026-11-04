@@ -90,7 +90,10 @@ def classify(
     state = evaluation.get("state")
     if record.get("state") != "OPEN" or record.get("is_draft"):
         return {"action": "skip", "pr_number": number, "reason": "not open"}
-    if require_renovate_author and not is_renovate_author(record.get("author") or ""):
+    if require_renovate_author and (
+        not is_renovate_author(record.get("author") or "")
+        or record.get("cross_repository")
+    ):
         return {"action": "skip", "pr_number": number, "reason": "not a Renovate PR"}
     if record.get("automerge") or "automerge" in labels:
         return {"action": "skip", "pr_number": number, "reason": "automerge"}

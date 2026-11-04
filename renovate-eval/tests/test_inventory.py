@@ -333,6 +333,25 @@ def test_inventory_filters_non_renovate_prs_before_per_pr_reads():
     assert {int(command[3]) for command in per_pr_commands} == {123}
 
 
+def test_inventory_filters_user_named_renovate_and_fork_prs():
+    renovate_pr = pr_data()
+    user_pr = pr_data(number=124, author={"login": "renovate"})
+    fork_pr = pr_data(number=125, isCrossRepository=True)
+    fake_gh = FakeGh([renovate_pr, user_pr, fork_pr])
+
+    result = build_inventory(now=NOW, run=fake_gh)
+
+    assert [pr["number"] for pr in result["prs"]] == [123]
+
+
+def test_targeted_inventory_disqualifies_fork_pr():
+    record, _ = inventory_for(pr_data(isCrossRepository=True))
+
+    assert record["cross_repository"] is True
+    assert record["safety_qualified"] is False
+    assert record["reasons"] == ["PR is from a fork"]
+
+
 def test_targeted_inventory_fetches_and_classifies_only_requested_pr():
     first = pr_data()
     selected = pr_data(number=124, headRefOid="b" * 40)

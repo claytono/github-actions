@@ -174,8 +174,19 @@ def _complete_bounded_collections(
 
 
 def is_renovate_author(author: str) -> bool:
-    """Whether a PR author login belongs to Renovate."""
-    return author in {"app/renovate", "renovate", "renovate[bot]"}
+    """Whether a PR author login belongs to the Renovate app.
+
+    gh reports app authors as ``app/<slug>`` and the REST API as
+    ``<slug>[bot]``. A plain ``renovate`` login is a user account.
+    """
+    return author in {"app/renovate", "renovate[bot]"}
+
+
+def _is_renovate_pr(pr: dict[str, Any]) -> bool:
+    """Whether a listed PR is Renovate's and comes from this repository."""
+    return is_renovate_author(_author_login(pr.get("author"))) and not pr.get(
+        "isCrossRepository"
+    )
 
 
 def _required_checks(run: Run, pr_number: int) -> dict[str, Any]:
@@ -348,6 +359,8 @@ def _qualification_reasons(
         reasons.append("evaluation comments are incomplete")
     if not is_renovate_author(author):
         reasons.append("author is not Renovate")
+    if pr.get("isCrossRepository"):
+        reasons.append("PR is from a fork")
     if pr.get("state") != "OPEN":
         reasons.append("PR is not open")
     if pr.get("isDraft"):
@@ -424,6 +437,7 @@ def _inventory_pr(
         "author": author,
         "state": pr.get("state") or "",
         "is_draft": bool(pr.get("isDraft")),
+        "cross_repository": bool(pr.get("isCrossRepository")),
         "base_ref": pr.get("baseRefName") or "",
         "base_sha": pr.get("baseRefOid") or "",
         "head_sha": pr.get("headRefOid") or "",
@@ -462,7 +476,8 @@ def build_inventory(
     )
 
     fields = (
-        "number,title,url,author,state,isDraft,baseRefName,baseRefOid,headRefOid,"
+        "number,title,url,author,state,isDraft,isCrossRepository,"
+        "baseRefName,baseRefOid,headRefOid,"
         "changedFiles,files,labels,"
         "mergeable,mergeStateStatus,autoMergeRequest,comments"
     )
@@ -493,7 +508,7 @@ def build_inventory(
         )
         if not isinstance(prs, list):
             raise RuntimeError("gh pr list returned an invalid PR list")
-        prs = [pr for pr in prs if is_renovate_author(_author_login(pr.get("author")))]
+        prs = [pr for pr in prs if _is_renovate_pr(pr)]
 
     fingerprint = make_fingerprinter(repository, run)
     if prs and hasattr(fingerprint, "prefetch"):
@@ -548,6 +563,7 @@ def _is_settling_candidate(record: dict[str, Any]) -> bool:
         and not record.get("is_draft")
         and record.get("base_ref") == "main"
         and is_renovate_author(str(record.get("author") or ""))
+        and not record.get("cross_repository")
         and bool(record.get("files_complete"))
         and {"renovate", "renovate:evaluated", "renovate:safe"} <= labels
         and not DISQUALIFYING_LABELS & labels

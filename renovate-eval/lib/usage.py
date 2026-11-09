@@ -4,7 +4,9 @@ Claude Code reports plan utilization in the ``rate_limit_event`` that
 ``claude -p --output-format stream-json --verbose`` emits after an API
 response. ``rate_limit_info.unifiedWindows`` carries the 5-hour and 7-day
 windows as fractions from 0 to 1. The field is not part of the documented
-SDK schema, so every unexpected shape fails closed.
+SDK schema, so every unexpected shape fails closed. The one exception is an
+absent 5-hour window: plans without a 5-hour limit, such as Ultra, report only
+the 7-day window.
 """
 
 from __future__ import annotations
@@ -31,6 +33,9 @@ PROBE_COMMAND = [
     "Reply OK",
 ]
 WINDOWS = ("five_hour", "seven_day")
+# Windows a plan may omit. A present but unreadable window still fails closed,
+# and the 7-day window stays required so an empty report never opens the gate.
+OPTIONAL_WINDOWS = frozenset({"five_hour"})
 
 
 def parse_rate_limit_event(stream: str) -> dict[str, Any] | None:
@@ -51,8 +56,9 @@ def parse_rate_limit_event(stream: str) -> dict[str, Any] | None:
 def usage_decision(info: dict[str, Any] | None, threshold: float) -> dict[str, Any]:
     """Decide whether a new evaluation may start.
 
-    Evaluations are allowed only when every window is readable and below the
-    threshold. The threshold is the used fraction at which evaluations stop.
+    Evaluations are allowed only when every reported window is readable and
+    below the threshold, and every required window is reported. The threshold
+    is the used fraction at which evaluations stop.
     """
     result: dict[str, Any] = {"allowed": False, "threshold": threshold, "windows": {}}
     if info is None:
@@ -66,6 +72,8 @@ def usage_decision(info: dict[str, Any] | None, threshold: float) -> dict[str, A
         result["reason"] = "rate_limit_event has no unifiedWindows"
         return result
     for name in WINDOWS:
+        if name not in windows and name in OPTIONAL_WINDOWS:
+            continue
         window = windows.get(name)
         utilization = window.get("utilization") if isinstance(window, dict) else None
         # Values above 1 mean the window is over its limit and close the gate;

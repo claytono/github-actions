@@ -85,7 +85,8 @@ inputs:
   usage_threshold:
     description: >-
       Claude subscription used fraction (0-1] at which evaluation is skipped;
-      checked in both the 5-hour and weekly windows when an OAuth token is used.
+      checked in the weekly window and, when the plan has one, the 5-hour
+      window when an OAuth token is used.
       Empty disables the check
     required: false
     default: '0.8'

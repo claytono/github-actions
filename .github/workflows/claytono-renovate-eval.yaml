@@ -36,7 +36,8 @@
 # most max_parallel evaluations run at once, passes queue instead of cancelling
 # each other, and a running evaluation is never cancelled. Before each
 # evaluation, a Claude usage probe stops the pass when either the 5-hour or the
-# weekly subscription window is at or above usage_threshold.
+# weekly subscription window is at or above usage_threshold. Plans without a
+# 5-hour limit report only the weekly window.
 #
 # Caller example:
 #

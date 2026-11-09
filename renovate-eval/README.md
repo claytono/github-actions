@@ -249,7 +249,10 @@ subscription window is too full. With `CLAUDE_CODE_OAUTH_TOKEN`, the action runs
 `renovate_eval.py usage-check`, which makes one minimal Haiku request and reads
 the 5-hour and weekly utilization from Claude Code's `rate_limit_event`. If
 either window is at or above the threshold, or the report cannot be read, the
-evaluation is skipped rather than failed. An empty threshold disables the check.
+evaluation is skipped rather than failed. Plans without a 5-hour limit, such as
+Ultra, report only the weekly window, so a missing 5-hour window is allowed; a
+missing weekly window still skips the evaluation. An empty threshold disables
+the check.
 
 For claytono repositories, `.github/workflows/claytono-renovate-eval.yaml`
 runs evaluations as passes instead of per-PR events. Each pass runs

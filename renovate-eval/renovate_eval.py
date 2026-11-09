@@ -1314,7 +1314,7 @@ def main() -> None:
     # usage-check
     p_usage = sub.add_parser(
         "usage-check",
-        help="Fail unless Claude 5-hour and weekly usage are below a threshold",
+        help="Fail unless reported Claude usage windows are below a threshold",
     )
     p_usage.add_argument(
         "--threshold",

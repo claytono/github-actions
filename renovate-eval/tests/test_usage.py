@@ -8,14 +8,23 @@ import subprocess
 import pytest
 from lib.usage import PROBE_COMMAND, check_usage, parse_rate_limit_event, usage_decision
 
+_ABSENT = object()
+
 
 def _event(five_hour=0.07, seven_day=0.47, status="allowed", windows=True):
     info = {"status": status, "rateLimitType": "five_hour"}
     if windows:
-        info["unifiedWindows"] = {
-            "five_hour": {"utilization": five_hour, "resetsAt": 1},
-            "seven_day": {"utilization": seven_day, "resetsAt": 2},
-        }
+        info["unifiedWindows"] = {}
+        if five_hour is not _ABSENT:
+            info["unifiedWindows"]["five_hour"] = {
+                "utilization": five_hour,
+                "resetsAt": 1,
+            }
+        if seven_day is not _ABSENT:
+            info["unifiedWindows"]["seven_day"] = {
+                "utilization": seven_day,
+                "resetsAt": 2,
+            }
     return json.dumps({"type": "rate_limit_event", "rate_limit_info": info})
 
 
@@ -96,6 +105,55 @@ def test_fails_closed_on_unusable_utilization(value):
 
     assert decision["allowed"] is False
     assert decision["reason"] == "seven_day utilization is unavailable"
+
+
+def test_allows_plan_without_five_hour_window():
+    decision = usage_decision(
+        parse_rate_limit_event(_stream(_event(five_hour=_ABSENT))), 0.8
+    )
+
+    assert decision["allowed"] is True
+    assert decision["windows"] == {"seven_day": 0.47}
+
+
+def test_weekly_window_still_closes_gate_without_five_hour_window():
+    decision = usage_decision(
+        parse_rate_limit_event(_stream(_event(five_hour=_ABSENT, seven_day=0.9))),
+        0.8,
+    )
+
+    assert decision["allowed"] is False
+    assert "seven_day 90%" in decision["reason"]
+
+
+def test_fails_closed_without_seven_day_window():
+    decision = usage_decision(
+        parse_rate_limit_event(_stream(_event(seven_day=_ABSENT))), 0.8
+    )
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "seven_day utilization is unavailable"
+
+
+def test_fails_closed_with_empty_unified_windows():
+    decision = usage_decision(
+        parse_rate_limit_event(_stream(_event(five_hour=_ABSENT, seven_day=_ABSENT))),
+        0.8,
+    )
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "seven_day utilization is unavailable"
+
+
+@pytest.mark.parametrize("window", [None, {}, {"utilization": None}])
+def test_present_but_unreadable_five_hour_window_fails_closed(window):
+    info = json.loads(_event())["rate_limit_info"]
+    info["unifiedWindows"]["five_hour"] = window
+
+    decision = usage_decision(info, 0.8)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "five_hour utilization is unavailable"
 
 
 def test_check_usage_runs_probe_and_decides():

@@ -1,17 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
-  "timezone": "America/New_York",
-  "semanticCommits": "disabled",
-  "pre-commit": {
-    "enabled": true
-  },
-  "github-actions": {
-    "enabled": true
-  },
-  "rebaseWhen": "behind-base-branch",
-  "minimumReleaseAge": "3 days",
-  "labels": ["renovate"],
+  "extends": ["github>claytono/renovate-config"],
   "ignoreDeps": ["claytono/github-actions"],
   "customManagers": [
     {

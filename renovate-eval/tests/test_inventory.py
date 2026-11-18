@@ -313,6 +313,58 @@ def test_inventory_returns_only_aggregate_required_check_state():
     assert record["required_checks"] == {"state": "passing"}
 
 
+@pytest.mark.parametrize(
+    ("checks", "reason"),
+    [
+        (
+            subprocess.CompletedProcess(
+                ["gh", "pr", "checks"],
+                1,
+                stdout="",
+                stderr="GraphQL: Resource not accessible by integration\n",
+            ),
+            "GraphQL: Resource not accessible by integration",
+        ),
+        (
+            subprocess.CompletedProcess(
+                ["gh", "pr", "checks"], 1, stdout="", stderr=""
+            ),
+            "gh exited 1",
+        ),
+        # Whitespace alone says nothing; the exit status still does.
+        (
+            subprocess.CompletedProcess(
+                ["gh", "pr", "checks"], 1, stdout="", stderr="\n"
+            ),
+            "gh exited 1",
+        ),
+        (
+            subprocess.CompletedProcess(
+                ["gh", "pr", "checks"], 0, stdout="{}", stderr=""
+            ),
+            "gh returned dict",
+        ),
+    ],
+)
+def test_inventory_reports_why_required_checks_are_unknown(checks, reason, capsys):
+    record, _ = inventory_for(pr_data(), checks=checks)
+
+    assert record["required_checks"] == {"state": "unknown"}
+    assert capsys.readouterr().err == (f"PR #123: required checks unknown: {reason}\n")
+
+
+def test_inventory_reports_a_gh_that_cannot_run(capsys):
+    def fail(command, **kwargs):
+        if command[:3] == ["gh", "pr", "checks"]:
+            raise subprocess.TimeoutExpired(command, 30)
+        return fake_gh(command, **kwargs)
+
+    fake_gh = FakeGh([pr_data()])
+    inventory_module.build_inventory(pr_number=123, now=NOW, run=fail)
+
+    assert "PR #123: required checks unknown: Command" in capsys.readouterr().err
+
+
 def test_inventory_filters_non_renovate_prs_before_per_pr_reads():
     renovate_pr = pr_data()
     human_pr = pr_data(

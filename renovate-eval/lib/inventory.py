@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -201,15 +202,21 @@ def _required_checks(run: Run, pr_number: int) -> dict[str, Any]:
     ]
     try:
         result = run(command, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _report_unknown_checks(pr_number, e)
         return {"state": "unknown", "checks": []}
 
     try:
         checks = json.loads(result.stdout)
     except (json.JSONDecodeError, TypeError):
+        _report_unknown_checks(
+            pr_number,
+            (result.stderr or "").strip() or f"gh exited {result.returncode}",
+        )
         return {"state": "unknown", "checks": []}
 
     if not isinstance(checks, list):
+        _report_unknown_checks(pr_number, f"gh returned {type(checks).__name__}")
         return {"state": "unknown", "checks": []}
     if not checks:
         return {"state": "none", "checks": []}
@@ -222,6 +229,13 @@ def _required_checks(run: Run, pr_number: int) -> dict[str, Any]:
     else:
         state = "pending"
     return {"state": state, "checks": checks}
+
+
+def _report_unknown_checks(pr_number: int, reason: object) -> None:
+    # The pass logs only "checks unknown"; gh's reason is what tells a missing
+    # token permission from a transient failure. stdout carries the JSON.
+    detail = " ".join(str(reason).split()) or "no output"
+    print(f"PR #{pr_number}: required checks unknown: {detail}", file=sys.stderr)
 
 
 Fingerprinter = Callable[[dict[str, Any]], "str | None"]

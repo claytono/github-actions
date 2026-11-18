@@ -336,6 +336,14 @@ def test_pass_continues_only_after_a_clean_pass_with_deferred_prs():
     assert job["steps"][0]["env"]["WORKFLOW_REF"] == "${{ github.workflow_ref }}"
 
 
+def test_gate_can_read_check_workflow_runs_in_private_repositories():
+    # gh pr checks reads each check's workflow run; in a private repository
+    # that needs actions: read, or every PR's checks come back unknown.
+    gate = _jobs(WORKFLOW)["gate"]
+
+    assert gate["permissions"]["actions"] == "read"
+
+
 def test_local_caller_allows_starting_the_next_pass():
     job = _jobs(LOCAL_CALLER)["renovate-eval"]
 

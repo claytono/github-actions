@@ -213,6 +213,10 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     permissions:
+      # gh pr checks reads each check's workflow run, which a private
+      # repository's token can only do with actions: read; without it every
+      # PR's required checks come back unknown and the pass skips them all.
+      actions: read
       contents: read
       pull-requests: read
       issues: write
